@@ -441,6 +441,11 @@ const MIN_CANVAS_SCALE = 0.58;
 const NODE_CONTEXT_MENU_WIDTH = 178;
 const NODE_CONTEXT_MENU_HEIGHT = 44;
 const NODE_CONTEXT_MENU_MARGIN = 8;
+const MIN_UI_SCALE_WIDTH = 960;
+const MIN_UI_SCALE_HEIGHT = 640;
+const TARGET_UI_SCALE_WIDTH = 1200;
+const TARGET_UI_SCALE_HEIGHT = 800;
+const MAX_UI_SCALE = 1.25;
 
 const nodeDefinitions: Record<NodeType, NodeDefinition> = {
   source: {
@@ -470,9 +475,9 @@ const nodeDefinitions: Record<NodeType, NodeDefinition> = {
     description: "生成、增强或重绘单帧画面与视觉资产。",
     icon: ImageIcon,
     width: 320,
-    height: 528,
+    height: 620,
     inputOffset: 120,
-    outputOffset: 140,
+    outputOffset: 120,
     modelGroup: "image",
   },
   video: {
@@ -482,7 +487,7 @@ const nodeDefinitions: Record<NodeType, NodeDefinition> = {
     description: "把关键帧扩展为动态镜头，控制时长与运动幅度。",
     icon: Video,
     width: 320,
-    height: 536,
+    height: 620,
     inputOffset: 120,
     modelGroup: "video",
   },
@@ -630,6 +635,8 @@ const nodeContextMenu = ref<NodeContextMenuState | null>(null);
 const canvasViewport = ref<HTMLElement | null>(null);
 const canvasScale = ref(1);
 const canvasOffset = reactive<Point>({ x: 0, y: 0 });
+const uiScale = ref(1);
+const isCompactViewport = ref(false);
 const isInspectorOpen = ref(false);
 const isNodePaletteOpen = ref(false);
 let canvasResizeObserver: ResizeObserver | undefined;
@@ -721,18 +728,27 @@ const nodeContextMenuStyle = computed(() => ({
   left: `${nodeContextMenu.value?.x ?? 0}px`,
   top: `${nodeContextMenu.value?.y ?? 0}px`,
 }));
+const appShellStyle = computed(() => {
+  if (isCompactViewport.value) {
+    return {};
+  }
+
+  return {
+    zoom: uiScale.value,
+  };
+});
 
 onMounted(() => {
   void loadApiKeySettings();
 
-  updateCanvasScale();
+  updateViewportSizing();
   canvasResizeObserver = new ResizeObserver(updateCanvasScale);
 
   if (canvasViewport.value) {
     canvasResizeObserver.observe(canvasViewport.value);
   }
 
-  window.addEventListener("resize", updateCanvasScale);
+  window.addEventListener("resize", updateViewportSizing);
   window.addEventListener("keydown", handleWindowKeydown);
 });
 
@@ -883,6 +899,28 @@ function ensureApiKeyConfigured() {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function updateUiScale() {
+  isCompactViewport.value = window.innerWidth < 760;
+
+  if (isCompactViewport.value) {
+    uiScale.value = 1;
+    return;
+  }
+
+  const widthProgress =
+    (window.innerWidth - MIN_UI_SCALE_WIDTH) / (TARGET_UI_SCALE_WIDTH - MIN_UI_SCALE_WIDTH);
+  const heightProgress =
+    (window.innerHeight - MIN_UI_SCALE_HEIGHT) / (TARGET_UI_SCALE_HEIGHT - MIN_UI_SCALE_HEIGHT);
+  const scaleProgress = clamp(Math.min(widthProgress, heightProgress), 0, 1);
+
+  uiScale.value = Number((1 + (MAX_UI_SCALE - 1) * scaleProgress).toFixed(3));
+}
+
+function updateViewportSizing() {
+  updateUiScale();
+  updateCanvasScale();
 }
 
 function updateCanvasScale() {
@@ -1316,19 +1354,19 @@ function openNodeContextMenu(id: string, event: MouseEvent) {
 
   const maxX = Math.max(
     NODE_CONTEXT_MENU_MARGIN,
-    window.innerWidth - NODE_CONTEXT_MENU_WIDTH - NODE_CONTEXT_MENU_MARGIN,
+    window.innerWidth / uiScale.value - NODE_CONTEXT_MENU_WIDTH - NODE_CONTEXT_MENU_MARGIN,
   );
   const maxY = Math.max(
     NODE_CONTEXT_MENU_MARGIN,
-    window.innerHeight - NODE_CONTEXT_MENU_HEIGHT - NODE_CONTEXT_MENU_MARGIN,
+    window.innerHeight / uiScale.value - NODE_CONTEXT_MENU_HEIGHT - NODE_CONTEXT_MENU_MARGIN,
   );
 
   selectedNodeId.value = node.id;
   isInspectorOpen.value = true;
   nodeContextMenu.value = {
     nodeId: node.id,
-    x: clamp(event.clientX, NODE_CONTEXT_MENU_MARGIN, maxX),
-    y: clamp(event.clientY, NODE_CONTEXT_MENU_MARGIN, maxY),
+    x: clamp(event.clientX / uiScale.value, NODE_CONTEXT_MENU_MARGIN, maxX),
+    y: clamp(event.clientY / uiScale.value, NODE_CONTEXT_MENU_MARGIN, maxY),
   };
 }
 
@@ -1411,7 +1449,7 @@ function nodeStyle(nodeReference: CanvasNode | string) {
     left: `${node.x}px`,
     top: `${node.y}px`,
     width: `${node.width}px`,
-    height: `${node.height}px`,
+    minHeight: `${node.height}px`,
     zIndex: isSelected ? 4 : 2,
   };
 }
@@ -1479,8 +1517,8 @@ function moveDraggedNode(event: PointerEvent) {
     return;
   }
 
-  const nextX = drag.originX + (event.clientX - drag.startX) / canvasScale.value;
-  const nextY = drag.originY + (event.clientY - drag.startY) / canvasScale.value;
+  const nextX = drag.originX + (event.clientX - drag.startX) / (canvasScale.value * uiScale.value);
+  const nextY = drag.originY + (event.clientY - drag.startY) / (canvasScale.value * uiScale.value);
 
   node.x = clamp(Math.round(nextX), canvasBounds.padding, canvasBounds.width - node.width - canvasBounds.padding);
   node.y = clamp(Math.round(nextY), canvasBounds.topPadding, canvasBounds.height - node.height - canvasBounds.padding);
@@ -1527,8 +1565,8 @@ function moveCanvasPan(event: PointerEvent) {
   const xLimit = getCanvasPanLimit("x");
   const yLimit = getCanvasPanLimit("y");
 
-  canvasOffset.x = Math.round(clamp(pan.originX + event.clientX - pan.startX, -xLimit, xLimit));
-  canvasOffset.y = Math.round(clamp(pan.originY + event.clientY - pan.startY, -yLimit, yLimit));
+  canvasOffset.x = Math.round(clamp(pan.originX + (event.clientX - pan.startX) / uiScale.value, -xLimit, xLimit));
+  canvasOffset.y = Math.round(clamp(pan.originY + (event.clientY - pan.startY) / uiScale.value, -yLimit, yLimit));
 }
 
 function stopCanvasPan(event?: PointerEvent) {
@@ -1593,7 +1631,7 @@ onUnmounted(() => {
   stopDrag();
   stopCanvasPan();
   canvasResizeObserver?.disconnect();
-  window.removeEventListener("resize", updateCanvasScale);
+  window.removeEventListener("resize", updateViewportSizing);
   window.removeEventListener("keydown", handleWindowKeydown);
 });
 </script>
@@ -1601,6 +1639,7 @@ onUnmounted(() => {
 <template>
   <main
     class="grid h-dvh grid-cols-[236px_minmax(0,1fr)] overflow-hidden bg-[#070708] text-[#d1d5db] max-[760px]:h-auto max-[760px]:min-h-dvh max-[760px]:grid-cols-1"
+    :style="appShellStyle"
     @pointerdown="closeFloatingPanels"
   >
     <aside class="flex min-w-0 flex-col border-r border-[#222228] bg-[#0e0e11] max-[760px]:border-r-0 max-[760px]:border-b">
@@ -1760,7 +1799,7 @@ onUnmounted(() => {
           v-for="node in nodes"
           :key="node.id"
           data-canvas-pan-block
-          class="absolute touch-none overflow-visible rounded-xl bg-[#121216] cursor-default"
+          class="absolute flex touch-none flex-col overflow-visible rounded-xl bg-[#121216] cursor-default"
           :class="[nodeBorderClass(node), selectedNodeId === node.id ? 'ring-1 ring-[#10b981]/60' : '']"
           :style="nodeStyle(node)"
           :aria-label="`${nodeDefinitions[node.type].label} node`"
@@ -1820,7 +1859,7 @@ onUnmounted(() => {
               <strong class="rounded-full bg-[#22302a] px-2 py-0.5 text-[10px] text-[#86efac]">{{ getNodeTokenEstimateLabel(node) }}</strong>
             </div>
 
-            <button class="absolute bottom-[52px] left-4 inline-flex h-9 w-[calc(100%_-_32px)] items-center justify-center gap-2 rounded-lg border-0 bg-[#10b981] text-[12px] font-black text-[#070708] hover:brightness-110 disabled:cursor-wait disabled:opacity-75" type="button" :disabled="isNodeRunning(node)" @click="generateImage(node)">
+            <button class="mx-4 mt-7 inline-flex min-h-9 w-[calc(100%_-_32px)] items-center justify-center gap-2 rounded-lg border-0 bg-[#10b981] px-3 py-2 text-[12px] font-black text-[#070708] hover:brightness-110 disabled:cursor-wait disabled:opacity-75" type="button" :disabled="isNodeRunning(node)" @click="generateImage(node)">
               <WandSparkles :size="15" />
               {{ isNodeRunning(node) ? "生成中..." : hasSavedApiKey ? "生成 AI 图像" : "设置 API Key" }}
             </button>
@@ -1874,7 +1913,7 @@ onUnmounted(() => {
               <strong class="rounded-full bg-[#1a2b2b] px-2 py-0.5 text-[10px] text-[#5eead4]">{{ getNodeTokenEstimateLabel(node) }}</strong>
             </div>
 
-            <button class="absolute bottom-[52px] left-4 inline-flex h-9 w-[calc(100%_-_32px)] items-center justify-center gap-2 rounded-lg border-0 bg-[#14b8a6] text-[12px] font-black text-[#070708] hover:brightness-110 disabled:cursor-wait disabled:opacity-75" type="button" :disabled="isNodeRunning(node)" @click="generateVideo(node)">
+            <button class="mx-4 mt-7 inline-flex min-h-9 w-[calc(100%_-_32px)] items-center justify-center gap-2 rounded-lg border-0 bg-[#14b8a6] px-3 py-2 text-[12px] font-black text-[#070708] hover:brightness-110 disabled:cursor-wait disabled:opacity-75" type="button" :disabled="isNodeRunning(node)" @click="generateVideo(node)">
               <Sparkles :size="15" />
               {{ isNodeRunning(node) ? "排队中..." : hasSavedApiKey ? "生成 AI 视频" : "设置 API Key" }}
             </button>
@@ -1943,7 +1982,7 @@ onUnmounted(() => {
     <Transition name="inspector-slide">
       <aside
         v-if="isInspectorOpen && selectedCanvasNode"
-        class="fixed bottom-0 right-0 top-0 z-40 flex w-[336px] max-w-[calc(100vw_-_56px)] min-w-0 flex-col border-l border-[#222228] bg-[#0e0e11] shadow-[0_0_48px_rgb(0_0_0/0.5)]"
+        class="fixed bottom-0 right-0 top-0 z-40 flex w-[min(28vw,420px)] min-w-[320px] max-w-[calc(100vw_-_32px)] flex-col border-l border-[#222228] bg-[#0e0e11] shadow-[0_0_48px_rgb(0_0_0/0.5)] max-[760px]:min-w-0"
         aria-label="Inspector panel"
       >
         <header class="grid h-[58px] grid-cols-[auto_1fr_auto] items-center gap-[11px] border-b border-[#222228] px-[18px] text-[#9ca3af]">
@@ -2059,7 +2098,7 @@ onUnmounted(() => {
       aria-labelledby="camera-control-title"
       @click.self="closeCameraPanel"
     >
-      <section class="w-full max-w-[1024px] overflow-hidden rounded-xl border border-[#2f2f36] bg-[#18181b] shadow-[0_24px_80px_rgb(0_0_0/0.58)]">
+      <section class="flex max-h-[calc(100dvh_-_40px)] w-[min(1024px,calc(100vw_-_24px))] flex-col overflow-hidden rounded-xl border border-[#2f2f36] bg-[#18181b] shadow-[0_24px_80px_rgb(0_0_0/0.58)]">
         <header class="flex min-h-[58px] flex-wrap items-center justify-between gap-3 px-4 py-3 max-[760px]:px-3">
           <h2 id="camera-control-title" class="text-[16px] font-bold leading-5 text-white">摄影机控制</h2>
           <label class="grid min-w-[76px] gap-1" for="camera-preset">
@@ -2077,7 +2116,7 @@ onUnmounted(() => {
           </label>
         </header>
 
-        <div class="grid gap-4 px-4 pb-4 max-[760px]:px-3">
+        <div class="grid gap-4 overflow-y-auto px-4 pb-4 max-[760px]:px-3">
           <div class="flex flex-wrap gap-2" role="tablist" aria-label="摄影机类型">
             <button
               v-for="tab in cameraTypeTabs"
@@ -2201,7 +2240,7 @@ onUnmounted(() => {
       aria-labelledby="api-key-title"
       @click.self="closeApiKeyPanel"
     >
-      <form class="w-full max-w-[520px] rounded-xl border border-[#222228] bg-[#101014] shadow-[0_24px_80px_rgb(0_0_0/0.52)]" @submit.prevent="saveApiKeySettings">
+      <form class="flex max-h-[calc(100dvh_-_48px)] w-[min(520px,calc(100vw_-_32px))] flex-col overflow-hidden rounded-xl border border-[#222228] bg-[#101014] shadow-[0_24px_80px_rgb(0_0_0/0.52)]" @submit.prevent="saveApiKeySettings">
         <header class="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-[#222228] px-5 py-4">
           <div class="min-w-0">
             <p class="mb-1 text-[10px] font-extrabold leading-3 text-[#4b5563]">SETTINGS</p>
@@ -2212,7 +2251,7 @@ onUnmounted(() => {
           </button>
         </header>
 
-        <section class="grid gap-5 px-5 py-5">
+        <section class="grid gap-5 overflow-y-auto px-5 py-5">
           <div class="grid gap-2">
             <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">服务商</span>
             <div class="grid h-9 grid-cols-3 gap-0.5 rounded-[5px] border border-[#222228] bg-[#15151a] p-0.5" role="group" aria-label="API provider">
