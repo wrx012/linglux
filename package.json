@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
+    "opencut:dev": "cd temp/OpenCut-pre-rewrite/apps/web && npm run dev",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "tauri": "tauri",

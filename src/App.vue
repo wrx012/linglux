@@ -4,12 +4,14 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Aperture,
+  ArrowLeft,
   AudioLines,
   Box,
   Camera,
   Clapperboard,
   Cpu,
   Download,
+  ExternalLink,
   Eye,
   EyeOff,
   Film,
@@ -60,7 +62,7 @@ interface WorkspaceNavItem {
   label: string;
   count?: string;
   icon: Component;
-  action?: "editor";
+  action?: "home" | "workflow" | "editor";
 }
 
 type CameraCategory = "film" | "digital" | "photo" | "phone";
@@ -354,7 +356,7 @@ const apiKeyDraft = ref<ApiKeySettings>({ ...defaultApiKeySettings });
 type ModelGroup = "image" | "video";
 type NodeType = "source" | "text" | "image" | "video" | "world3d" | "audio" | "storyboard" | "aiApp" | "import";
 type NodeSide = "left" | "right";
-type WorkspaceMode = "workflow" | "editor";
+type WorkspaceMode = "home" | "workflow" | "editor" | "opencut";
 
 interface CanvasNode {
   id: string;
@@ -394,6 +396,17 @@ interface NodeContextMenuState {
 interface Point {
   x: number;
   y: number;
+}
+
+interface ProjectLibraryItem {
+  id: string;
+  name: string;
+  source: "opencut" | "linglux";
+  updatedAt: string;
+  duration: number;
+  resolution: string;
+  assetName: string;
+  accentClass: string;
 }
 
 interface ModelOption {
@@ -449,6 +462,7 @@ const canvasBounds = {
 
 const CANVAS_VIEWPORT_GUTTER = 40;
 const CANVAS_TOOLBAR_SPACE = 86;
+const OPENCUT_EDITOR_ORIGIN = "http://127.0.0.1:3000";
 const MIN_CANVAS_SCALE = 0.58;
 const NODE_CONTEXT_MENU_WIDTH = 178;
 const NODE_CONTEXT_MENU_HEIGHT = 44;
@@ -641,7 +655,10 @@ const workflowEdges = ref<WorkflowEdge[]>([
 ]);
 
 const artifacts = reactive<Artifact[]>([]);
-const activeWorkspace = ref<WorkspaceMode>("workflow");
+const activeWorkspace = ref<WorkspaceMode>("home");
+const editorReturnWorkspace = ref<Exclude<WorkspaceMode, "editor">>("home");
+const opencutProjectUrl = ref(`${OPENCUT_EDITOR_ORIGIN}/projects`);
+const activeOpenCutProjectName = ref("OpenCut");
 const editSession = ref<EditSession>(createSeededEditSession({ sourceNodeId: "video-1", assetName: "linglux_generated_take.mp4" }));
 const selectedNodeId = ref("image-1");
 const nodeSequence = ref(2);
@@ -658,10 +675,44 @@ const isNodePaletteOpen = ref(false);
 let canvasResizeObserver: ResizeObserver | undefined;
 
 const workspaceNav: WorkspaceNavItem[] = [
-  { label: "我的项目", count: "18", icon: Folder },
+  { label: "我的项目", count: "18", icon: Folder, action: "home" },
   { label: "剪辑器", count: "V1", icon: Film, action: "editor" },
+  { label: "AI 工作流", count: "3", icon: Layers, action: "workflow" },
   { label: "模型设置", icon: SlidersHorizontal },
   { label: "导出记录", icon: Download },
+];
+
+const projectLibrary: ProjectLibraryItem[] = [
+  {
+    id: "opencut-brand-film",
+    name: "OpenCut 品牌短片",
+    source: "opencut",
+    updatedAt: "今天 14:20",
+    duration: 42,
+    resolution: "1080p",
+    assetName: "opencut_brand_film.mp4",
+    accentClass: "from-[#38bdf8] via-[#14b8a6] to-[#22c55e]",
+  },
+  {
+    id: "linglux-generated-take",
+    name: "Linglux 生成镜头",
+    source: "linglux",
+    updatedAt: "昨天 19:08",
+    duration: 12,
+    resolution: "1080p",
+    assetName: "linglux_generated_take.mp4",
+    accentClass: "from-[#f59e0b] via-[#ef4444] to-[#ec4899]",
+  },
+  {
+    id: "launch-cutdown",
+    name: "产品发布 Cutdown",
+    source: "linglux",
+    updatedAt: "周五 09:32",
+    duration: 28,
+    resolution: "4K",
+    assetName: "launch_cut_v03.mov",
+    accentClass: "from-[#60a5fa] via-[#818cf8] to-[#c084fc]",
+  },
 ];
 
 const hasSavedApiKey = computed(() => apiKeySettings.value.apiKey.trim().length > 0);
@@ -746,7 +797,7 @@ const nodeContextMenuStyle = computed(() => ({
   top: `${nodeContextMenu.value?.y ?? 0}px`,
 }));
 const appShellStyle = computed(() => {
-  if (isCompactViewport.value || activeWorkspace.value === "editor") {
+  if (isCompactViewport.value || activeWorkspace.value !== "workflow") {
     return {};
   }
 
@@ -839,9 +890,58 @@ function openSupportItem(action?: SupportNavItem["action"]) {
 }
 
 function openWorkspaceItem(action?: WorkspaceNavItem["action"]) {
+  if (action === "home") {
+    openProjectHome();
+    return;
+  }
+
+  if (action === "workflow") {
+    openWorkflowCanvas();
+    return;
+  }
+
   if (action === "editor") {
     void openEditorFromNode(primaryVideoNode.value);
   }
+}
+
+function openProjectHome() {
+  activeWorkspace.value = "home";
+  hostStatus.value = "Project library ready";
+  closeFloatingPanels();
+  closeInspector();
+}
+
+function openWorkflowCanvas() {
+  activeWorkspace.value = "workflow";
+  hostStatus.value = "Workflow ready";
+  window.setTimeout(updateViewportSizing, 0);
+}
+
+async function createOpenCutProject() {
+  openOpenCutProject({
+    id: `linglux-${Date.now()}`,
+    name: "新建 OpenCut 项目",
+  });
+  hostStatus.value = "OpenCut project created";
+}
+
+function openLibraryProject(project: ProjectLibraryItem) {
+  openOpenCutProject(project);
+  hostStatus.value = `Opened ${project.name}`;
+}
+
+function openOpenCutProject(project: Pick<ProjectLibraryItem, "id" | "name">) {
+  activeOpenCutProjectName.value = project.name;
+  opencutProjectUrl.value = `${OPENCUT_EDITOR_ORIGIN}/editor/${encodeURIComponent(project.id)}`;
+  closeFloatingPanels();
+  closeInspector();
+  activeWorkspace.value = "opencut";
+}
+
+function returnToProjectHome() {
+  activeWorkspace.value = "home";
+  hostStatus.value = "Project library ready";
 }
 
 async function openEditorFromNode(node?: CanvasNode | Event) {
@@ -855,6 +955,7 @@ async function openEditorFromNode(node?: CanvasNode | Event) {
 
   closeFloatingPanels();
   closeInspector();
+  editorReturnWorkspace.value = activeWorkspace.value === "workflow" ? "workflow" : "home";
 
   try {
     editSession.value = await invoke<EditSession>("create_edit_session", { seed });
@@ -867,9 +968,12 @@ async function openEditorFromNode(node?: CanvasNode | Event) {
 }
 
 function returnToWorkflow() {
-  activeWorkspace.value = "workflow";
-  hostStatus.value = "Workflow ready";
-  window.setTimeout(updateViewportSizing, 0);
+  activeWorkspace.value = editorReturnWorkspace.value;
+  hostStatus.value = editorReturnWorkspace.value === "workflow" ? "Workflow ready" : "Project library ready";
+
+  if (editorReturnWorkspace.value === "workflow") {
+    window.setTimeout(updateViewportSizing, 0);
+  }
 }
 
 function handleEditorExport(result: EditorExportResult) {
@@ -1711,13 +1815,75 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main
-    class="grid h-dvh overflow-hidden bg-[#070708] text-[#d1d5db] max-[760px]:h-auto max-[760px]:min-h-dvh"
-    :class="activeWorkspace === 'editor' ? 'grid-cols-1' : 'grid-cols-[236px_minmax(0,1fr)] max-[760px]:grid-cols-1'"
-    :style="appShellStyle"
-    @pointerdown="closeFloatingPanels"
-  >
-    <aside v-if="activeWorkspace === 'workflow'" class="flex min-w-0 flex-col border-r border-[#222228] bg-[#0e0e11] max-[760px]:border-r-0 max-[760px]:border-b">
+    <main
+      class="grid h-dvh overflow-hidden bg-[#070708] text-[#d1d5db] max-[760px]:h-auto max-[760px]:min-h-dvh"
+      :class="activeWorkspace === 'workflow' ? 'grid-cols-[236px_minmax(0,1fr)] max-[760px]:grid-cols-1' : 'grid-cols-1'"
+      :style="appShellStyle"
+      @pointerdown="closeFloatingPanels"
+    >
+      <section v-if="activeWorkspace === 'home'" class="min-h-0 overflow-y-auto bg-[#f7f7f5] text-[#171717] [scrollbar-color:#d6d6d2_#f0f0ed]" aria-label="Project home">
+        <header class="sticky top-0 z-20 border-b border-[#deded9] bg-[#f7f7f5]/90 px-6 py-4 backdrop-blur max-[720px]:px-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex min-w-0 items-center gap-3">
+              <img :src="lingluxLogo" alt="" class="size-8 rounded-[7px] object-contain" />
+              <div class="min-w-0">
+                <h1 class="truncate text-[18px] font-black leading-5 text-[#111111]">项目</h1>
+                <p class="text-[11px] font-bold text-[#8a8a84]">{{ projectLibrary.length }} saved</p>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <button class="grid size-9 place-items-center rounded-lg border border-[#d8d8d3] bg-white text-[#4b5563] shadow-sm hover:border-[#a3a39b] hover:text-[#111111]" type="button" title="AI 工作流" aria-label="AI 工作流" @click="openWorkflowCanvas">
+                <Layers :size="15" />
+              </button>
+              <button class="grid size-9 place-items-center rounded-lg border-0 bg-[#111111] text-white shadow-sm hover:bg-[#2a2a2a]" type="button" title="新建项目" aria-label="新建项目" @click="createOpenCutProject">
+                <Plus :size="15" />
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <div class="mx-auto grid w-full max-w-[1180px] gap-5 px-6 py-6 max-[720px]:px-4">
+          <section class="grid grid-cols-4 gap-3 max-[1060px]:grid-cols-3 max-[760px]:grid-cols-2 max-[520px]:grid-cols-1">
+            <button class="group grid aspect-[1.18] min-h-[196px] place-items-center rounded-lg border border-dashed border-[#b9b9b1] bg-white text-center outline-none transition hover:border-[#111111] hover:shadow-sm focus-visible:ring-2 focus-visible:ring-[#111111]/20" type="button" aria-label="新建项目" @click="createOpenCutProject">
+              <span class="grid gap-3">
+                <span class="mx-auto grid size-14 place-items-center rounded-full bg-[#111111] text-white transition group-hover:scale-105">
+                  <Plus :size="28" :stroke-width="2.5" />
+                </span>
+                <span class="text-[12px] font-black text-[#6f6f68]">New</span>
+              </span>
+            </button>
+
+            <button
+              v-for="project in projectLibrary"
+              :key="project.id"
+              class="group grid aspect-[1.18] min-h-[196px] overflow-hidden rounded-lg border border-[#deded9] bg-white text-left shadow-sm outline-none transition hover:-translate-y-0.5 hover:border-[#c6c6bf] hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#111111]/20"
+              type="button"
+              @click="openLibraryProject(project)"
+            >
+              <span class="relative block h-full">
+                <span class="absolute inset-x-0 top-0 h-[62%] bg-gradient-to-br" :class="project.accentClass"></span>
+                <span class="absolute left-3 top-3 rounded-full bg-white/22 px-2 py-1 text-[9px] font-black uppercase text-white backdrop-blur">{{ project.source }}</span>
+                <span class="absolute inset-x-0 bottom-0 grid gap-2 bg-white p-3">
+                  <span class="flex items-center justify-between gap-2">
+                    <strong class="truncate text-[13px] font-black leading-5 text-[#111111]">{{ project.name }}</strong>
+                    <Film class="shrink-0 text-[#8a8a84]" :size="14" />
+                  </span>
+                  <span class="flex items-center gap-2 text-[10px] font-bold text-[#8a8a84]">
+                    <span class="truncate">{{ project.updatedAt }}</span>
+                    <span aria-hidden="true">/</span>
+                    <span>{{ project.duration }}s</span>
+                    <span aria-hidden="true">/</span>
+                    <span>{{ project.resolution }}</span>
+                  </span>
+                </span>
+              </span>
+            </button>
+          </section>
+        </div>
+      </section>
+
+      <aside v-if="activeWorkspace === 'workflow'" class="flex min-w-0 flex-col border-r border-[#222228] bg-[#0e0e11] max-[760px]:border-r-0 max-[760px]:border-b">
       <header class="grid h-[72px] grid-cols-[34px_1fr] items-center gap-3 border-b border-[#222228] px-5">
         <img :src="lingluxLogo" alt="" class="size-[34px] rounded-[9px] object-contain shadow-[0_0_26px_rgb(16_185_129/0.24)]" />
         <div class="min-w-0">
@@ -2047,11 +2213,39 @@ onUnmounted(() => {
     </section>
 
     <LingluxEditor
-      v-else
+      v-else-if="activeWorkspace === 'editor'"
       :session="editSession"
       @return-to-workflow="returnToWorkflow"
       @exported="handleEditorExport"
     />
+
+    <section v-else-if="activeWorkspace === 'opencut'" class="grid h-dvh grid-rows-[48px_minmax(0,1fr)] overflow-hidden bg-[#0b0b0d] text-[#e5e7eb]" aria-label="OpenCut editor integration">
+      <header class="grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-[#24242a] bg-[#101014] px-3">
+        <button class="grid size-8 place-items-center rounded-lg border border-[#2f2f36] bg-[#17171c] text-[#9ca3af] hover:text-white" type="button" title="返回项目" aria-label="返回项目" @click="returnToProjectHome">
+          <ArrowLeft :size="16" />
+        </button>
+        <div class="min-w-0">
+          <p class="text-[9px] font-black uppercase tracking-[0.18em] text-[#38bdf8]">OpenCut editor</p>
+          <h2 class="truncate text-[13px] font-black leading-4 text-white">{{ activeOpenCutProjectName }}</h2>
+        </div>
+        <a class="inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-[#2f2f36] bg-[#17171c] px-3 text-[11px] font-black text-[#d1d5db] hover:border-[#38bdf8] hover:text-[#38bdf8]" :href="opencutProjectUrl" target="_blank" rel="noreferrer">
+          <ExternalLink :size="14" />
+          新窗口打开
+        </a>
+      </header>
+
+      <div class="relative min-h-0">
+        <iframe
+          class="h-full w-full border-0 bg-white"
+          title="OpenCut editor"
+          :src="opencutProjectUrl"
+          allow="clipboard-read; clipboard-write; fullscreen"
+        ></iframe>
+        <div class="pointer-events-none absolute bottom-3 left-3 max-w-[520px] rounded-lg border border-black/10 bg-white/90 px-3 py-2 text-[11px] font-semibold leading-4 text-[#334155] shadow-sm backdrop-blur">
+          如果这里空白或连接失败，请先启动 OpenCut：<span class="font-black text-[#0f172a]">npm run opencut:dev</span>
+        </div>
+      </div>
+    </section>
 
     <div
       v-if="nodeContextMenu && nodeContextMenuTarget"
