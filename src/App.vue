@@ -22,6 +22,7 @@ import {
   MousePointer2,
   Plus,
   Save,
+  Scissors,
   Server,
   Settings,
   SlidersHorizontal,
@@ -36,6 +37,9 @@ import {
   Clock,
 } from "@lucide/vue";
 import lingluxLogo from "./assets/linglux-logo-no-text.png";
+import LingluxEditor from "./components/editor/LingluxEditor.vue";
+import type { Artifact, EditSession, EditorExportResult, EditorSessionSeed } from "./types/editor";
+import { createSeededEditSession } from "./lib/editorProject";
 
 type ApiProviderValue = "openai" | "openrouter" | "custom";
 
@@ -50,6 +54,13 @@ interface SupportNavItem {
   meta?: "saved" | "empty";
   icon: Component;
   action?: "api-key";
+}
+
+interface WorkspaceNavItem {
+  label: string;
+  count?: string;
+  icon: Component;
+  action?: "editor";
 }
 
 type CameraCategory = "film" | "digital" | "photo" | "phone";
@@ -343,6 +354,7 @@ const apiKeyDraft = ref<ApiKeySettings>({ ...defaultApiKeySettings });
 type ModelGroup = "image" | "video";
 type NodeType = "source" | "text" | "image" | "video" | "world3d" | "audio" | "storyboard" | "aiApp" | "import";
 type NodeSide = "left" | "right";
+type WorkspaceMode = "workflow" | "editor";
 
 interface CanvasNode {
   id: string;
@@ -429,8 +441,8 @@ interface WireDisplay {
 }
 
 const canvasBounds = {
-  width: 1160,
-  height: 760,
+  width: 1560,
+  height: 920,
   padding: 16,
   topPadding: 64,
 };
@@ -489,6 +501,7 @@ const nodeDefinitions: Record<NodeType, NodeDefinition> = {
     width: 320,
     height: 620,
     inputOffset: 120,
+    outputOffset: 140,
     modelGroup: "video",
   },
   world3d: {
@@ -627,6 +640,9 @@ const workflowEdges = ref<WorkflowEdge[]>([
   { id: "edge-image-1-video-1", from: "image-1", to: "video-1" },
 ]);
 
+const artifacts = reactive<Artifact[]>([]);
+const activeWorkspace = ref<WorkspaceMode>("workflow");
+const editSession = ref<EditSession>(createSeededEditSession({ sourceNodeId: "video-1", assetName: "linglux_generated_take.mp4" }));
 const selectedNodeId = ref("image-1");
 const nodeSequence = ref(2);
 const dragState = ref<DragState | null>(null);
@@ -641,8 +657,9 @@ const isInspectorOpen = ref(false);
 const isNodePaletteOpen = ref(false);
 let canvasResizeObserver: ResizeObserver | undefined;
 
-const workspaceNav = [
+const workspaceNav: WorkspaceNavItem[] = [
   { label: "我的项目", count: "18", icon: Folder },
+  { label: "剪辑器", count: "V1", icon: Film, action: "editor" },
   { label: "模型设置", icon: SlidersHorizontal },
   { label: "导出记录", icon: Download },
 ];
@@ -729,7 +746,7 @@ const nodeContextMenuStyle = computed(() => ({
   top: `${nodeContextMenu.value?.y ?? 0}px`,
 }));
 const appShellStyle = computed(() => {
-  if (isCompactViewport.value) {
+  if (isCompactViewport.value || activeWorkspace.value === "editor") {
     return {};
   }
 
@@ -819,6 +836,63 @@ function openSupportItem(action?: SupportNavItem["action"]) {
   if (action === "api-key") {
     openApiKeyPanel();
   }
+}
+
+function openWorkspaceItem(action?: WorkspaceNavItem["action"]) {
+  if (action === "editor") {
+    void openEditorFromNode(primaryVideoNode.value);
+  }
+}
+
+async function openEditorFromNode(node?: CanvasNode | Event) {
+  const targetNode = isCanvasNode(node) ? node : primaryVideoNode.value;
+  const seed: EditorSessionSeed = {
+    sourceNodeId: targetNode?.id,
+    assetName: targetNode?.assetName ?? (targetNode ? `${targetNode.id}_generated.mp4` : "linglux_editor_seed.mp4"),
+    assetUrl: targetNode ? `linglux://node/${targetNode.id}` : "linglux://editor/empty",
+    duration: 12,
+  };
+
+  closeFloatingPanels();
+  closeInspector();
+
+  try {
+    editSession.value = await invoke<EditSession>("create_edit_session", { seed });
+  } catch {
+    editSession.value = createSeededEditSession(seed);
+  }
+
+  activeWorkspace.value = "editor";
+  hostStatus.value = targetNode ? `Editing ${targetNode.id}` : "Editor ready";
+}
+
+function returnToWorkflow() {
+  activeWorkspace.value = "workflow";
+  hostStatus.value = "Workflow ready";
+  window.setTimeout(updateViewportSizing, 0);
+}
+
+function handleEditorExport(result: EditorExportResult) {
+  artifacts.push(result.artifact);
+
+  const sourceNode = findNode(result.artifact.sourceNodeId);
+  const position = getNewNodePosition("video", sourceNode);
+  const node = createNode("video", position.x, position.y);
+
+  node.assetName = result.artifact.name;
+  node.status = "Edited ready";
+  node.modelId = sourceNode?.modelId ?? getDefaultModelId("video");
+  nodes.push(node);
+
+  if (sourceNode) {
+    connectNodes(sourceNode, node);
+  }
+
+  selectedNodeId.value = node.id;
+  activeWorkspace.value = "workflow";
+  isInspectorOpen.value = true;
+  hostStatus.value = `Exported ${result.preset.label}`;
+  window.setTimeout(updateViewportSizing, 0);
 }
 
 function openApiKeyPanel() {
@@ -1638,11 +1712,12 @@ onUnmounted(() => {
 
 <template>
   <main
-    class="grid h-dvh grid-cols-[236px_minmax(0,1fr)] overflow-hidden bg-[#070708] text-[#d1d5db] max-[760px]:h-auto max-[760px]:min-h-dvh max-[760px]:grid-cols-1"
+    class="grid h-dvh overflow-hidden bg-[#070708] text-[#d1d5db] max-[760px]:h-auto max-[760px]:min-h-dvh"
+    :class="activeWorkspace === 'editor' ? 'grid-cols-1' : 'grid-cols-[236px_minmax(0,1fr)] max-[760px]:grid-cols-1'"
     :style="appShellStyle"
     @pointerdown="closeFloatingPanels"
   >
-    <aside class="flex min-w-0 flex-col border-r border-[#222228] bg-[#0e0e11] max-[760px]:border-r-0 max-[760px]:border-b">
+    <aside v-if="activeWorkspace === 'workflow'" class="flex min-w-0 flex-col border-r border-[#222228] bg-[#0e0e11] max-[760px]:border-r-0 max-[760px]:border-b">
       <header class="grid h-[72px] grid-cols-[34px_1fr] items-center gap-3 border-b border-[#222228] px-5">
         <img :src="lingluxLogo" alt="" class="size-[34px] rounded-[9px] object-contain shadow-[0_0_26px_rgb(16_185_129/0.24)]" />
         <div class="min-w-0">
@@ -1658,7 +1733,13 @@ onUnmounted(() => {
 
       <nav class="mx-3 mb-[22px] grid gap-1.5" aria-label="Workspace">
         <p class="mb-2.5 ml-3 text-[10px] font-extrabold leading-3 text-[#4b5563]">工作区</p>
-        <button v-for="item in workspaceNav" :key="item.label" class="grid h-[34px] grid-cols-[24px_1fr_auto] items-center gap-1.5 rounded-lg px-3 text-left text-[12px] text-[#9ca3af] hover:bg-[#15151a]" type="button">
+        <button
+          v-for="item in workspaceNav"
+          :key="item.label"
+          class="grid h-[34px] grid-cols-[24px_1fr_auto] items-center gap-1.5 rounded-lg px-3 text-left text-[12px] text-[#9ca3af] hover:bg-[#15151a]"
+          type="button"
+          @click="openWorkspaceItem(item.action)"
+        >
           <span class="grid size-4 place-items-center rounded-[3px] border border-[#33333a] bg-[#1d1d22] text-[#6b7280]">
             <component :is="item.icon" :size="14" />
           </span>
@@ -1705,6 +1786,7 @@ onUnmounted(() => {
     </aside>
 
     <section
+      v-if="activeWorkspace === 'workflow'"
       ref="canvasViewport"
       class="canvas-grid relative min-w-0 overflow-auto bg-[#070708] [scrollbar-color:#2a2a32_#0b0b0d] max-[760px]:h-[760px]"
       :class="isCanvasPanning ? 'cursor-grabbing' : 'cursor-grab'"
@@ -1917,7 +1999,12 @@ onUnmounted(() => {
               <Sparkles :size="15" />
               {{ isNodeRunning(node) ? "排队中..." : hasSavedApiKey ? "生成 AI 视频" : "设置 API Key" }}
             </button>
+            <button class="mx-4 mt-2 inline-flex min-h-9 w-[calc(100%_-_32px)] items-center justify-center gap-2 rounded-lg border border-[#115e59] bg-[#0f2f2e] px-3 py-2 text-[12px] font-black text-[#5eead4] hover:border-[#14b8a6] hover:text-[#99f6e4]" type="button" @click="openEditorFromNode(node)">
+              <Scissors :size="15" />
+              编辑视频
+            </button>
             <span class="socket left-[-7px] top-[119px]"></span>
+            <span class="socket right-[-7px] top-[139px]"></span>
           </template>
 
           <template v-else>
@@ -1958,6 +2045,13 @@ onUnmounted(() => {
         </div>
       </div>
     </section>
+
+    <LingluxEditor
+      v-else
+      :session="editSession"
+      @return-to-workflow="returnToWorkflow"
+      @exported="handleEditorExport"
+    />
 
     <div
       v-if="nodeContextMenu && nodeContextMenuTarget"
