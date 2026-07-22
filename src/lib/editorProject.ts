@@ -1,4 +1,5 @@
 import type {
+  AudioBeatMarker,
   ClipEffect,
   ClipTransform,
   EditSession,
@@ -6,12 +7,30 @@ import type {
   EditorSessionSeed,
   ExportPreset,
   MediaAsset,
+  TextClipStyle,
   TimelineClip,
   TimelineTrack,
   TimelineTrackType,
 } from "../types/editor";
 
-const DEFAULT_DURATION = 12;
+export const TIMELINE_BASE_PIXELS_PER_SECOND = 12;
+export const TIMELINE_MIN_SCALE = 0.12;
+export const TIMELINE_MAX_SCALE = 3.2;
+export const TIMELINE_BUTTON_SCALE_STEP = 0.15;
+const DEFAULT_TEXT_CLIP_STYLE: TextClipStyle = {
+  fontFamily: "Arial",
+  fontSize: 52,
+  color: "#FFFFFF",
+  letterSpacing: 0,
+  lineHeight: 1.2,
+  backgroundEnabled: false,
+  backgroundColor: "#000000",
+  backgroundWidth: 30,
+  backgroundHeight: 42,
+  backgroundXOffset: 0,
+  backgroundYOffset: 0,
+  backgroundCornerRadius: 0,
+};
 
 export const exportPresets: ExportPreset[] = [
   { id: "standard-1080", label: "1080p 标准", format: "mp4", resolution: "1080p", fps: 30, quality: "standard" },
@@ -37,37 +56,20 @@ export function createDefaultEffects(): ClipEffect[] {
   ];
 }
 
+export function createDefaultTextClipStyle(): TextClipStyle {
+  return { ...DEFAULT_TEXT_CLIP_STYLE };
+}
+
+export function normalizeTextClipStyle(style?: Partial<TextClipStyle>): TextClipStyle {
+  return {
+    ...DEFAULT_TEXT_CLIP_STYLE,
+    ...style,
+  };
+}
+
 export function createSeededEditSession(seed: EditorSessionSeed = {}): EditSession {
   const now = new Date().toISOString();
-  const duration = seed.duration ?? DEFAULT_DURATION;
   const sourceNodeId = seed.sourceNodeId;
-  const videoAsset = createMediaAsset({
-    id: sourceNodeId ? `asset-${sourceNodeId}` : "asset-editor-seed",
-    type: "video",
-    name: seed.assetName ?? "linglux_generated_take.mp4",
-    url: seed.assetUrl ?? `linglux://artifact/${sourceNodeId ?? "seed-video"}`,
-    duration,
-    sourceNodeId,
-    createdAt: now,
-  });
-
-  const audioAsset = createMediaAsset({
-    id: "asset-room-tone",
-    type: "audio",
-    name: "ambient_mix.wav",
-    url: "linglux://asset/ambient_mix.wav",
-    duration,
-    createdAt: now,
-  });
-
-  const captionAsset = createMediaAsset({
-    id: "asset-caption-bed",
-    type: "caption",
-    name: "字幕轨",
-    url: "linglux://caption/default",
-    duration: 4,
-    createdAt: now,
-  });
 
   const tracks: TimelineTrack[] = [
     createTrack("track-overlay", "overlay", "叠加轨"),
@@ -76,69 +78,14 @@ export function createSeededEditSession(seed: EditorSessionSeed = {}): EditSessi
     createTrack("track-audio", "audio", "音频轨"),
   ];
 
-  tracks[0].clips.push(
-    createClip({
-      id: "clip-overlay-guide",
-      assetId: videoAsset.id,
-      trackId: "track-overlay",
-      name: "片头叠加",
-      type: "overlay",
-      start: 0.6,
-      duration: 2.6,
-      trimStart: 0,
-      trimEnd: 0,
-      opacity: 0.42,
-    }),
-  );
-  tracks[1].clips.push(
-    createClip({
-      id: "clip-main-video",
-      assetId: videoAsset.id,
-      trackId: "track-video",
-      name: videoAsset.name,
-      type: "video",
-      start: 0,
-      duration,
-      trimStart: 0,
-      trimEnd: 0,
-    }),
-  );
-  tracks[2].clips.push(
-    createClip({
-      id: "clip-caption-1",
-      assetId: captionAsset.id,
-      trackId: "track-caption",
-      name: "主字幕",
-      type: "caption",
-      start: 1,
-      duration: 4,
-      trimStart: 0,
-      trimEnd: 0,
-      captionText: "Linglux 自动剪辑草稿",
-    }),
-  );
-  tracks[3].clips.push(
-    createClip({
-      id: "clip-audio-bed",
-      assetId: audioAsset.id,
-      trackId: "track-audio",
-      name: audioAsset.name,
-      type: "audio",
-      start: 0,
-      duration,
-      trimStart: 0,
-      trimEnd: 0,
-      volume: 0.72,
-    }),
-  );
-
   const project: EditorProject = {
     id: `project-${Date.now()}`,
     name: sourceNodeId ? `剪辑会话 · ${sourceNodeId}` : "Linglux 剪辑工程",
     sourceNodeId,
-    assets: [videoAsset, audioAsset, captionAsset],
+    assets: [],
     tracks,
-    duration,
+    mainTrackMagnetEnabled: true,
+    duration: 0,
     fps: 30,
     resolution: { width: 1920, height: 1080 },
     createdAt: now,
@@ -155,13 +102,91 @@ export function createSeededEditSession(seed: EditorSessionSeed = {}): EditSessi
 }
 
 export function cloneProject(project: EditorProject): EditorProject {
-  return JSON.parse(JSON.stringify(project)) as EditorProject;
+  return normalizeEditorProject(JSON.parse(JSON.stringify(project)) as EditorProject);
+}
+
+export function normalizeEditorProject(project: EditorProject): EditorProject {
+  project.mainTrackMagnetEnabled = project.mainTrackMagnetEnabled !== false;
+
+  for (const track of project.tracks) {
+    track.visible = track.visible !== false;
+    track.mediaEnabled = track.mediaEnabled !== false;
+
+    for (const clip of track.clips) {
+      clip.visible = clip.visible !== false;
+
+      if (clip.type === "caption") {
+        clip.textStyle = normalizeTextClipStyle(clip.textStyle);
+      }
+
+      if (clip.type === "audio") {
+        const beatMarkers = normalizeAudioBeatMarkers(clip.beatMarkers, clip.duration);
+
+        if (beatMarkers.length > 0) {
+          clip.beatMode = "auto";
+          clip.beatMarkers = beatMarkers;
+        } else {
+          delete clip.beatMode;
+          delete clip.beatMarkers;
+        }
+      } else {
+        delete clip.beatMode;
+        delete clip.beatMarkers;
+      }
+    }
+
+    if (project.mainTrackMagnetEnabled && isPrimaryTimelineTrack(track)) {
+      closeTimelineTrackGaps(track);
+    }
+  }
+
+  if (!project.tracks.some((track) => track.clips.length > 0)) {
+    project.duration = 0;
+  }
+
+  return project;
+}
+
+function normalizeAudioBeatMarkers(markers: AudioBeatMarker[] | undefined, duration: number) {
+  if (!Array.isArray(markers) || duration <= 0) {
+    return [];
+  }
+
+  return markers
+    .filter((marker) => Number.isFinite(marker.time) && marker.time >= 0 && marker.time <= duration)
+    .map((marker) => ({
+      time: Number(marker.time.toFixed(3)),
+      intensity: Number(Math.min(Math.max(Number.isFinite(marker.intensity) ? marker.intensity : 0.65, 0.25), 1).toFixed(2)),
+    }))
+    .sort((left, right) => left.time - right.time);
+}
+
+export function isPrimaryTimelineTrack(track: TimelineTrack) {
+  return track.type === "video";
+}
+
+export function closeTimelineTrackGaps(track: TimelineTrack) {
+  track.clips.sort((left, right) => left.start - right.start);
+
+  let nextStart = 0;
+  let changed = false;
+
+  for (const clip of track.clips) {
+    if (Math.abs(clip.start - nextStart) > 0.001) {
+      clip.start = nextStart;
+      changed = true;
+    }
+
+    nextStart += clip.duration;
+  }
+
+  return changed;
 }
 
 export function calculateProjectDuration(tracks: TimelineTrack[]) {
   const duration = tracks.flatMap((track) => track.clips).reduce((max, clip) => Math.max(max, clip.start + clip.duration), 0);
 
-  return Math.max(DEFAULT_DURATION, Math.ceil(duration));
+  return Math.max(duration, 0);
 }
 
 export function formatTimecode(seconds: number) {
@@ -183,9 +208,41 @@ function createTrack(id: string, type: TimelineTrackType, label: string): Timeli
     type,
     label,
     muted: false,
+    visible: true,
+    mediaEnabled: true,
     locked: false,
     clips: [],
   };
+}
+
+export function createTimelineClip(options: {
+  id: string;
+  assetId: string;
+  trackId: string;
+  name: string;
+  type: TimelineTrackType;
+  start: number;
+  duration: number;
+  volume?: number;
+  opacity?: number;
+  captionText?: string;
+  textStyle?: Partial<TextClipStyle>;
+}): TimelineClip {
+  return createClip({
+    id: options.id,
+    assetId: options.assetId,
+    trackId: options.trackId,
+    name: options.name,
+    type: options.type,
+    start: options.start,
+    duration: options.duration,
+    trimStart: 0,
+    trimEnd: 0,
+    volume: options.volume,
+    opacity: options.opacity,
+    captionText: options.captionText,
+    textStyle: options.textStyle,
+  });
 }
 
 function createClip(options: {
@@ -201,6 +258,7 @@ function createClip(options: {
   volume?: number;
   opacity?: number;
   captionText?: string;
+  textStyle?: Partial<TextClipStyle>;
 }): TimelineClip {
   const transform = createDefaultTransform();
   transform.opacity = options.opacity ?? transform.opacity;
@@ -217,10 +275,12 @@ function createClip(options: {
     trimEnd: options.trimEnd,
     volume: options.volume ?? 1,
     muted: false,
+    visible: true,
     speed: 1,
     transform,
     effects: createDefaultEffects(),
     transition: options.type === "video" || options.type === "overlay" ? "soft" : undefined,
     captionText: options.captionText,
+    textStyle: options.type === "caption" ? normalizeTextClipStyle(options.textStyle) : undefined,
   };
 }

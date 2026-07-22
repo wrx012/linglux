@@ -16,3 +16,7 @@ pnpm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+
+# Nuxt UI generated types
+auto-imports.d.ts
+components.d.ts

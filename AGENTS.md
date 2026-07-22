@@ -2,45 +2,58 @@
 
 Guidance for coding agents working in this repository.
 
-## Project Overview
+## First Principles
 
-Linglux is a desktop-first AI agent for video creation, editing, enhancement, and automation. The product direction is documented in `DESIGN.md`; read it before making feature or architecture changes.
+Linglux is a desktop-first AI agent for video creation, editing, enhancement, and automation. Keep every change aligned with professional video tooling, node-based workflow automation, local media durability, and desktop app ergonomics.
 
-The current app is a Vue 3 + TypeScript + Vite frontend wrapped by Tauri 2. It presents a dark, node-based AI workflow canvas where users can combine sources, text, image generation, video diffusion, 3D world, audio, storyboard, and automation nodes. Keep changes aligned with professional video tooling, workflow automation, and desktop app ergonomics.
+Read `DESIGN.md` before feature, architecture, data-model, provider, export, storage, media-core, or Tauri changes. Read `MEDIA_CORE.md` before changing managed media import, project manifests, derivative cache, FFmpeg execution, task queues, cancellation, or export behavior.
 
-## Current Implementation Notes
+The design docs are the product north star, but source code may be ahead of documentation. Verify current implementation before editing and update docs when the task includes documentation work.
 
-- `src/App.vue` is still the main prototype surface. It contains workflow node data, drag/pan logic, context menu handling, inspector state, camera controls, API key panel state, and generation simulations.
-- Workflow nodes are data-driven through `NodeType`, `CanvasNode`, `nodeDefinitions`, `nodePaletteSections`, and `modelOptionsByGroup`. Extend those structures instead of duplicating hardcoded node markup.
-- The central canvas supports node dragging, canvas panning, node creation, node deletion, dynamic wires, and responsive scaling. Preserve pointer cleanup and keyboard/panel close behavior when editing interactions.
-- Image generation calls the Tauri command `create_video_plan` as a host bridge smoke test. Video generation is currently simulated with a timeout.
-- API key settings use Tauri commands in desktop mode and fall back to browser `localStorage` for web preview.
-- Camera controls build prompt cues from camera body, lens, focal length, aperture, and lens effect selections.
+Keep changes narrow. Do not revert unrelated uncommitted work, generated output, or local experiments. Generated or local-only paths such as `node_modules/`, `dist/`, `src-tauri/target/`, `src-tauri/gen/`, Nuxt UI generated component/import files, OS metadata files, and development export output under `output/` must not be edited by hand or committed unless explicitly requested.
 
-## Tech Stack
+## Current Architecture
 
-- Frontend: Vue 3 single-file components with `<script setup lang="ts">`
-- Styling: Tailwind CSS v4 through `@tailwindcss/vite`
-- Icons: `@lucide/vue`
-- Desktop shell: Tauri 2
-- Rust crate: `src-tauri`, Rust edition 2021, minimum Rust `1.77.2`
-- Package manager: npm with `package-lock.json`
-- Required runtime: Node.js 20 or later; Rust toolchain for desktop work
+Linglux is a Vue 3 + TypeScript + Vite frontend wrapped by Tauri 2. Styling uses Tailwind CSS v4 through the current Vite/Nuxt UI stack, UI primitives come from `@nuxt/ui`, icons come from `@lucide/vue`, and the package manager is npm with `package-lock.json`.
 
-## Repository Layout
+Required runtimes are Node.js 20 or later for frontend work and a Rust toolchain for desktop work. The Tauri crate uses Rust edition 2021 and declares minimum Rust `1.77.2`.
 
-- `README.md`: setup, development, build, and troubleshooting guide
-- `DESIGN.md`: product goals, architecture, target data model, module roadmap, and design principles
-- `src/`: Vue frontend source
-- `src/App.vue`: current main UI and interaction prototype
-- `src/style.css`: Tailwind import, base styles, transitions, and shared utilities
-- `src/assets/linglux-logo-no-text.png`: current app logo asset
-- `src-tauri/`: Tauri application shell and Rust commands
-- `src-tauri/src/lib.rs`: command definitions, API key settings persistence, and Tauri setup
-- `src-tauri/tauri.conf.json`: Tauri dev/build, window, security, and bundle configuration
-- `vite.config.ts`: Vite, Vue, Tailwind, and Tauri-facing build settings
+The app currently has two primary workspaces:
 
-Generated or local-only paths such as `node_modules/`, `dist/`, `src-tauri/target/`, and OS metadata files must not be committed. Do not edit generated Tauri schema files under `src-tauri/gen/` by hand.
+- Workflow workspace in `src/App.vue`: dark node canvas, node palette, graph state, node drag/pan behavior, camera prompt controls, API key/settings UI, generation simulations, artifacts, and workspace switching.
+- Editor workspace under `src/components/editor/`: media bin, preview monitor, timeline, clip inspector, export dialog, local edit-session state, undo/redo, import handling, preview playback, task-backed save/export bridge calls, and web-preview fallbacks.
+
+The desktop media layer lives in Rust under `src-tauri/crates/linglux-media-core`. It owns managed project media, manifest persistence, derivative cache, task journals, import, thumbnail/waveform/proxy generation, FFmpeg process execution, and queue/cancellation primitives.
+
+The current implementation is still a prototype in the AI-provider sense. Real model calls, provider task queues, provider cancellation/retry policy, cost reporting, full project browser UX, durable cross-project asset reuse, and production secret storage are not complete. Managed media import, project manifest save/load, media derivatives, task events, cancellation hooks, and FFmpeg export are real implementation paths and should not be described as purely simulated.
+
+## Important Files
+
+- `DESIGN.md`: product goals, architecture boundaries, current implementation snapshot, target data model, roadmap, and design principles.
+- `MEDIA_CORE.md`: media-core layout, task model, import/derivative/export responsibilities, storage policy, and validation notes.
+- `README.md`: setup, development, build, troubleshooting, and platform requirements.
+- `package.json`: npm scripts and dependency source of truth.
+- `vite.config.ts`: Vue, Nuxt UI, theme defaults, and dev server configuration.
+- `src/main.ts`: Vue app entry and Nuxt UI plugin registration.
+- `src/App.vue`: app shell and workflow workspace. It owns workflow nodes/edges, canvas interaction state, API key/settings panel state, camera controls, `activeWorkspace`, `editSession`, and generated/exported artifacts.
+- `src/components/editor/LingluxEditor.vue`: editor workspace orchestration. It owns the editable project clone, selection, playback state, history/future stacks, imported object URLs, managed import/derivative tasks, timeline operations, save/export actions, shortcuts, and child component wiring.
+- `src/components/editor/MediaBin.vue`: media import, native dialog bridge, web file fallback, search/filter tabs, multi-select, preset audio/text assets, asset drag start, and audio preview.
+- `src/components/editor/PreviewMonitor.vue`: responsive 16:9 preview frame, native video playback clock, timeline audio sync, caption overlay rendering, playhead synchronization, and preview fallback states.
+- `src/components/editor/TimelinePanel.vue`: track controls, virtualized ruler/clips, playhead/ruler, clip context menu, drag/drop targets, split/trim/delete actions, zoom, snapping, magnetic main track, waveform and beat-marker display, and visibility/audio toggles.
+- `src/components/editor/AudioWaveform.vue`: canvas waveform rendering for audio and video clips with peak overlays and played-region feedback.
+- `src/components/editor/InspectorPanel.vue`: selected clip parameter editing, including transform/audio/effect controls and text clip styling.
+- `src/components/editor/ExportDialog.vue`: export preset selection, task progress, cancellation, reveal/open-location, and completion UI.
+- `src/types/editor.ts`: frontend editor data contracts, including media tasks, managed media fields, text style, beat markers, and export results.
+- `src/lib/editorProject.ts`: editor defaults, export presets, project/session helpers, clip factory, duration/timecode utilities, normalization, cloning, and primary-track gap closing.
+- `src/style.css`: Tailwind import, base rules, transitions, canvas/editor utilities, sockets, scrollbars, and shared range styling.
+- `src-tauri/src/lib.rs`: Tauri commands, API key settings persistence, media-core setup, project save/load, import/derivative/export task bridges, FFmpeg export orchestration, and reveal-file guard.
+- `src-tauri/crates/linglux-media-core/src/project_store.rs`: project directory and manifest persistence.
+- `src-tauri/crates/linglux-media-core/src/task.rs`: task snapshots, journals, state transitions, and cancellation.
+- `src-tauri/crates/linglux-media-core/src/import.rs`: desktop media import, supported extensions, fingerprinting, clone/hard-link/copy strategy, and progress.
+- `src-tauri/crates/linglux-media-core/src/media.rs`: metadata probing, thumbnail/waveform/proxy generation, warnings, and cache pruning.
+- `src-tauri/crates/linglux-media-core/src/ffmpeg.rs`: FFmpeg/FFprobe discovery and process execution.
+- `src-tauri/tauri.conf.json`: Tauri dev/build URLs, window settings, asset protocol, security, and bundle configuration.
+- `src-tauri/capabilities/default.json`: current Tauri permissions.
 
 ## Development Commands
 
@@ -56,7 +69,7 @@ Run the web UI only:
 npm run dev
 ```
 
-`npm run dev` serves Vite on `127.0.0.1:1420` with a strict port. If the port is already in use, stop the existing process rather than silently switching ports.
+`npm run dev` serves Vite on `127.0.0.1:1420` with `--strictPort`. If that port is already in use, stop the existing process instead of silently switching ports.
 
 Run the desktop app:
 
@@ -64,7 +77,7 @@ Run the desktop app:
 npm run tauri:dev
 ```
 
-Tauri starts the Vite dev server automatically from `src-tauri/tauri.conf.json`; do not run a separate Vite server before `npm run tauri:dev` unless you are intentionally debugging the frontend alone.
+Tauri starts the Vite dev server from `src-tauri/tauri.conf.json`; do not run a separate Vite server first unless intentionally debugging the frontend alone.
 
 Build the frontend:
 
@@ -82,63 +95,153 @@ npm run tauri:build
 
 Before handing off code changes, run the narrowest reliable validation for the files touched:
 
-- Frontend or shared TypeScript changes: `npm run build`
-- Tauri/Rust changes: `cargo check --manifest-path src-tauri/Cargo.toml`
-- Packaging, window, bundle, or permission changes: `npm run tauri:build`
-- Documentation-only changes: no build is required unless the docs change executable commands or configuration assumptions
+- Frontend or shared TypeScript changes: `npm run build`.
+- Tauri command, Rust bridge, or host setup changes: `cargo check --manifest-path src-tauri/Cargo.toml`.
+- Media-core import, project store, task, cache, derivative, or FFmpeg wrapper changes: `cargo test --manifest-path src-tauri/Cargo.toml -p linglux-media-core`.
+- Packaging, window, bundle, permission, asset protocol, or release changes: `npm run tauri:build`.
+- Frontend and Tauri bridge changes: validate both sides with the relevant frontend build and Rust check.
+- FFmpeg export or derivative behavior changes: also exercise the path on a machine where `ffmpeg` and `ffprobe` are discoverable.
+- Documentation-only changes: no build is required unless executable commands, configuration assumptions, or generated examples changed.
 
-There is currently no dedicated lint or test script in `package.json`. Do not invent one without adding the supporting tooling intentionally.
+There is currently no lint script in `package.json`. Do not invent one unless you intentionally add and configure the supporting tooling.
 
 ## Frontend Conventions
 
-- Prefer Vue 3 Composition API with `<script setup lang="ts">`.
-- Keep TypeScript strict-compatible; avoid `any` unless there is a clear boundary reason.
-- Use `ref`, `reactive`, and `computed` for local state and derived UI values.
-- Use `@lucide/vue` icons for common UI actions.
-- Keep component state and handler names descriptive and product-oriented.
-- Preserve accessibility basics: semantic landmarks, useful `aria-label`s, `type="button"` on non-submit buttons, and labels for form controls.
-- Keep the UI responsive across the desktop canvas layout and the narrow-screen fallback already present in `App.vue`.
-- If `App.vue` grows further, split along the module names suggested in `DESIGN.md`: `Sidebar`, `WorkflowCanvas`, `WorkflowNode`, `InspectorPanel`, `StatusFooter`, and `GenerationControls`.
+Prefer Vue 3 Composition API with `<script setup lang="ts">`. Keep TypeScript strict-compatible and avoid `any` unless it is a deliberate boundary with a clear reason.
 
-## Styling Conventions
+Use `ref`, `reactive`, and `computed` for local state and derived values. Keep state and handler names descriptive and product-oriented.
 
-- Use Tailwind utility classes for component-local styling.
-- Keep shared CSS in `src/style.css` for base rules, transitions, and reusable utilities only.
-- The current visual language is a restrained dark professional workstation UI with green/teal accents, compact controls, grid/canvas surfaces, and dense inspector panels.
-- Avoid unrelated palette rewrites, marketing-style landing sections, or broad visual redesigns unless explicitly requested.
-- Keep fixed-format UI stable with explicit dimensions or responsive constraints so labels, hover states, dynamic text, and generated node content do not shift layout.
+Use existing Nuxt UI components for common buttons, dialogs, popovers, dropdowns, cards, progress, badges, inputs, selects, checkboxes, switches, tooltips, and modals. Preserve the configured Nuxt UI theme in `vite.config.ts`; do not bypass it for broad one-off styling.
+
+Use `@lucide/vue` icons for common UI actions. Preserve accessibility basics: semantic landmarks, useful `aria-label`s, `type="button"` on non-submit buttons, dialog attributes, labels for form controls, and keyboard/pointer cleanup.
+
+Preserve the existing responsive desktop-workstation layout and narrow-screen fallbacks. Fixed-format controls such as canvas nodes, editor panels, timeline tracks, preview frames, toolbar buttons, waveform canvases, and sliders should have stable dimensions or responsive constraints so dynamic text and hover states do not shift the layout.
+
+Do not casually rewrite existing Chinese or English product copy. If copy changes are requested, preserve the professional Linglux tone: concise, cinematic, creator-tool oriented, and suitable for a serious desktop workstation.
+
+## Workflow Workspace Rules
+
+Workflow nodes are data-driven through `NodeType`, `CanvasNode`, `nodeDefinitions`, `nodePaletteSections`, and model option maps in `src/App.vue`. Extend those structures instead of duplicating hardcoded node markup.
+
+The workflow canvas supports node dragging, canvas panning, node creation, node deletion, dynamic wires, context menus, responsive scaling, and panel close behavior. When changing interactions, preserve pointer cleanup, `Escape` behavior, bounds clamping, selected-node behavior, and responsive canvas sizing.
+
+Image generation still calls the Tauri command `create_video_plan` as a host bridge smoke test. Video generation remains simulated in the current workflow UI. Do not treat the current model list, token estimates, or generated workflow artifacts as a backend provider contract.
+
+Camera controls build prompt cues from camera body, lens, focal length, aperture, and lens effect selections. Preserve the `Camera:` prefix replacement behavior so repeated camera applications do not stack duplicate camera lines.
+
+The editor can return completed export results to the workflow as artifacts. Preserve this bridge when changing editor completion or artifact handling.
+
+## Editor Workspace Rules
+
+Editor data types live in `src/types/editor.ts`; editor helpers and presets live in `src/lib/editorProject.ts`. Add shared editor concepts there before wiring them through multiple components.
+
+`LingluxEditor.vue` clones the incoming session project and owns local edit state. Mutating operations should capture history through the existing history helpers before edits and mark the project dirty after edits when the change affects the project.
+
+Keep project normalization in `src/lib/editorProject.ts` and Rust serde defaults aligned. New fields should load safely from older projects and from web-preview fallback data.
+
+Keep media import browser-safe and desktop-safe:
+
+- Desktop imports should pass file paths to Tauri and let media-core manage bytes.
+- Web preview imports may use object URLs and browser metadata extraction.
+- Detect asset types defensively from MIME/extension.
+- Read metadata asynchronously.
+- Create thumbnails and waveforms defensively.
+- Revoke object URLs through the existing cleanup path.
+- Never pass large media bytes through Tauri JSON IPC.
+
+Timeline drag/drop uses custom Linglux data-transfer types and pointer-driven drag state for the media bin. Preserve compatibility checks between asset types and track types when adding tracks or media kinds.
+
+The primary video track supports magnetic behavior through `mainTrackMagnetEnabled` and project normalization. Preserve gap closing and insertion semantics when moving, trimming, splitting, deleting, or inserting primary-track clips.
+
+Timeline rendering uses virtualization and stable sizing for ruler ticks, clips, tracks, waveforms, beat markers, and drag previews. Preserve these performance constraints when adding timeline features.
+
+Preview playback can delegate timing to the native video element when a video clip is active and also manages timeline audio elements. Preserve the preview clock handoff, audio sync, scrub synchronization, throttled playhead events, error fallback, and cleanup on unmount.
+
+Save and export call Tauri commands with web-preview fallbacks. Keep fallback behavior when adding host-backed editor features unless the feature is explicitly desktop-only and the UI communicates that constraint.
+
+Export currently uses `start_export` with task events, not the old mock-only export path. Preserve cancellation, progress, output path, manifest path, warnings, and reveal/open-location behavior.
+
+## Media Core Rules
+
+Read `MEDIA_CORE.md` before changing this area.
+
+The media-core root lives under the Tauri app data directory as `media-core/`. Projects use `<project-id>.linglux/` directories with `manifest.json`, `manifest.json.bak`, `media/`, and `proxies/`. Cache data lives under `cache/thumbnails/` and `cache/waveforms/`. Task journals live under `tasks/`.
+
+Project save writes a temporary next manifest, syncs it, backs up the previous manifest, then replaces the active manifest. Do not replace this with direct overwrite behavior.
+
+Task states include `queued`, `running`, `cancelling`, `cancelled`, `succeeded`, `failed`, and `interrupted`. Preserve journal recovery semantics for unfinished tasks.
+
+Exports run on a single export worker. Import and derivative work share media workers. Keep long-running work observable through task events and cancellable through task handles.
+
+Derivative generation should prefer cached artifacts where valid and should report warnings for unavailable FFmpeg, skipped streams, unsupported media, or fallback behavior. Do not make cache misses or derivative failures corrupt the project manifest.
+
+Import should keep the clonefile/hard-link/copy fallback strategy and progress updates. Keep supported extension checks centralized in media-core.
+
+FFmpeg and FFprobe are discovered from PATH and common system locations. If packaging sidecars later, update discovery, docs, and validation together.
 
 ## Tauri, Rust, and Security
 
-- Register frontend-callable commands in `src-tauri/src/lib.rs` with `#[tauri::command]` and `tauri::generate_handler!`.
-- Current commands are `create_video_plan`, `load_api_key_settings`, `save_api_key_settings`, and `clear_api_key_settings`.
-- Keep command payloads explicit and serializable with `serde` when structured data is needed.
-- API key settings are sensitive. Never log full keys, render full keys outside intentional input fields, or include them in task logs. Mask keys in UI summaries.
-- Desktop API key settings are persisted under the Tauri app config directory as `api-key-settings.json`; web preview falls back to `localStorage`.
-- Avoid expanding Tauri permissions in `src-tauri/capabilities/default.json` unless a feature genuinely requires it. Add the narrowest permission possible.
-- Keep desktop window configuration in `src-tauri/tauri.conf.json`. The current main window is `1440x780` with a `960x640` minimum size.
-- Prefer small Rust commands that expose stable application capabilities to the Vue frontend instead of embedding desktop-specific assumptions in UI code.
+Register frontend-callable commands in `src-tauri/src/lib.rs` with `#[tauri::command]` and `tauri::generate_handler!`.
 
-## Product and Architecture Direction
+Current commands are:
 
-- Treat nodes as business units, jobs as runtime units, and artifacts as reusable results, matching `DESIGN.md`.
-- Frontend should express intent and immediate UI state; the Tauri host should own local files, queues, secure settings, export work, and platform capabilities.
-- Do not treat the current model names as a complete backend contract. When implementing real providers, add explicit request/response types and error handling.
-- Long-running generation and export work should be cancellable, retryable, and observable through progress/log state.
-- File system, shell, network, and secret-storage capabilities must be justified by user-visible product value and scoped narrowly.
+- `create_video_plan`
+- `load_api_key_settings`
+- `save_api_key_settings`
+- `clear_api_key_settings`
+- `create_edit_session`
+- `load_edit_project`
+- `save_edit_project`
+- `start_import_media`
+- `start_media_derivatives`
+- `start_export`
+- `cancel_media_task`
+- `get_media_task`
+- `list_media_tasks`
+- `reveal_export_file`
+
+When changing editor request/response payloads, keep `src/types/editor.ts`, frontend invoke calls, and Rust serde structs compatible. If a new frontend field is required, either mirror it in Rust or make the bridge tolerant with explicit defaults.
+
+Large media bytes should stay out of Tauri JSON IPC. Send paths or small typed payloads, use media-core for local file ownership, and use Tauri asset conversion for renderable media URLs.
+
+API key settings are sensitive. Never log full keys, render full keys outside intentional input fields, or include keys in task logs, project files, artifacts, export records, manifests, or error messages. Mask keys in summaries.
+
+Desktop API key settings are persisted under the Tauri app config directory as `api-key-settings.json`; web preview falls back to `localStorage` with `linglux-api-key-settings`. This is prototype storage, not final production secret storage.
+
+Avoid expanding `src-tauri/capabilities/default.json` unless a user-visible feature genuinely needs it. Add the narrowest possible permission. File system, shell, network, dialog, asset protocol, and secret-storage capabilities must be justified by product value and scoped tightly.
+
+Keep desktop window and dev URL settings aligned with `src-tauri/tauri.conf.json`, `vite.config.ts`, and `package.json`. The app currently expects `http://127.0.0.1:1420`.
+
+`reveal_export_file` should remain guarded to known export locations. Do not introduce arbitrary path reveal/open behavior.
+
+## Product Direction
+
+Treat nodes as business units, jobs as runtime units, and artifacts as reusable results. Frontend code should express creative intent and immediate UI state; the Tauri host and media-core should own local files, queues, secure settings, export work, and platform capabilities.
+
+Long-running generation, import, derivative, save, and export work should be cancellable where practical, retryable where safe, and observable through progress and logs.
+
+When implementing real providers, add explicit request/response types, error normalization, cost/progress reporting, and cancellation boundaries.
+
+Prefer stable application capabilities exposed through small Rust commands or service adapters instead of scattering desktop-specific assumptions through Vue components.
 
 ## Dependency and Config Policy
 
-- Use npm, not pnpm or yarn, unless the project intentionally changes package managers.
-- Keep `package-lock.json` in sync with `package.json`.
-- Do not add new dependencies for simple UI, state, or data transformations that the existing stack can handle.
-- If adding a dependency, explain why it is worth the extra desktop bundle and maintenance cost.
-- Keep Vite and Tauri dev URLs aligned. The app currently expects `http://127.0.0.1:1420`.
+Use npm, not pnpm or yarn, unless the project intentionally changes package managers. Keep `package-lock.json` in sync with `package.json`.
+
+Do not add new dependencies for simple UI, state, timing, formatting, or data transformations that the existing stack can handle. If adding a dependency, explain why it is worth the desktop bundle size and maintenance cost.
+
+Nuxt UI is already part of the current UI stack. Do not add parallel component libraries for ordinary controls.
+
+Do not broaden Tailwind, Nuxt UI, Vite, TypeScript, Tauri, or Cargo workspace configuration unless the requested change requires it. Keep Vite and Tauri dev URLs aligned.
+
+Do not hand-edit generated Tauri schemas under `src-tauri/gen/` or generated Nuxt UI auto-import/component declaration files.
 
 ## Change Management
 
-- Keep changes narrowly scoped to the requested feature or fix.
-- Do not rewrite existing user-facing Chinese/English copy casually; preserve the product tone unless copy changes are requested.
-- Do not revert unrelated uncommitted changes.
-- Avoid broad refactors while the app is still in prototype shape unless they directly reduce risk for the requested work.
-- When a change affects both frontend and Tauri, update both sides in the same pass and validate the bridge with the relevant command.
+Keep changes scoped to the requested feature or fix. Avoid broad refactors while the app is still in prototype shape unless they directly reduce risk or unblock the requested work.
+
+If a change affects both frontend and Tauri, update both sides in the same pass and validate the bridge. If source code and docs disagree, prefer the current source for implementation details and update docs when the task includes documentation work.
+
+When editing UI, preserve the restrained dark professional workstation language: compact controls, dense panels, canvas/grid surfaces, green/teal and blue accents, and clear hierarchy. Avoid marketing-style landing sections, unrelated palette rewrites, decorative cards, or broad visual redesigns unless explicitly requested.
+
+Before final handoff, summarize what changed, mention validation performed or why it was not needed, and call out any relevant existing dirty worktree files you did not touch.

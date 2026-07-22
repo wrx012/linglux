@@ -1,529 +1,566 @@
-# Linglux 设计文档
+# Linglux Design
 
-Linglux（灵帧AI）是一个桌面优先的 AI 视频创作、编辑、增强与自动化应用。当前代码库是产品原型：前端已经形成可交互的节点式工作流画布，Tauri 后端提供基础命令桥接和 API Key 配置持久化。本文档用于说明当前实现、架构边界和后续演进方向。
+Linglux 是一个 desktop-first 的 AI 视频创作与剪辑工作台。它把「节点式 AI 工作流」和「传统时间线剪辑器」放在同一个桌面应用里：前者负责生成、增强和自动化，后者负责把素材落到时间线中做可控编辑、预览、保存与导出。
 
-## 1. 产品定位
+本文档描述当前源码实际状态和下一阶段设计方向。源码可能比早期产品设想更靠前；修改功能前以源码为准，并在文档中补齐差异。
 
-Linglux 的目标是把专业视频生成流程压缩成可视化工作流。用户通过节点串联素材、提示词、摄影机风格、AI 图像生成、视频扩散、音频、分镜和自动化应用，而不是直接面对复杂的模型调用、素材路径和导出任务。
+## Product North Star
 
-当前原型支持的核心体验：
+Linglux 面向希望在本地桌面环境中完成专业视频创作的用户：
 
-1. 在画布中查看和组织工作流节点。
-2. 添加文本、图片、视频、3D 世界、音频、分镜格子、AI 应用、上传资源和作品导入节点。
-3. 拖拽节点、平移画布、查看自动连线和节点状态。
-4. 为图片和视频节点选择模型，并估算 token 消耗。
-5. 设置提示词、负面提示词、渲染步数、CFG 和运动幅度。
-6. 通过摄影机控制面板生成相机、镜头、焦段、光圈和镜头效果提示词。
-7. 配置 API Key 和 Base URL，为后续真实 AI 服务调用做准备。
+- 用节点组织 AI 任务、参数、上下游资产和复用结果。
+- 用时间线完成视频、音频、字幕、图片和生成素材的精细编辑。
+- 用 Tauri/Rust 承接本地文件、长任务、缓存、导出和桌面能力。
+- 让前端保持即时、清晰、创作导向，把重型媒体处理留给宿主端。
 
-## 2. 当前阶段
+设计上的核心约束是：**创作意图在前端表达，媒体事实在本地宿主保存，长任务必须可观察、可取消、可恢复。**
 
-当前版本仍是交互原型，不是完整可用的视频生成产品。
+## Current Snapshot
 
-已实现：
+当前应用已经具备两套主要工作区：
 
-- Vue 单页桌面工作台 UI。
-- 数据驱动的节点定义、节点列表和边列表。
-- 节点添加、删除、选择、拖拽和上下文菜单。
-- 画布响应式缩放和平移。
-- 图片/视频节点的模型选择和 token 估算。
-- API Key 设置弹窗，支持 OpenAI、OpenRouter 和自定义 Base URL。
-- Tauri 命令持久化 API Key 设置。
-- Web 预览模式下的 `localStorage` 兜底。
-- 摄影机控制弹窗和提示词合并逻辑。
+- 工作流工作区：位于 `src/App.vue`，包含深色节点画布、节点面板、模型/API Key 设置、镜头语言控制、生成模拟、工件列表和工作区切换。
+- 剪辑器工作区：位于 `src/components/editor/`，包含媒体库、预览监视器、时间线、检查器、导出弹窗、撤销/重做、媒体导入、桌面保存和 FFmpeg 导出。
 
-尚未实现：
+相比早期原型，剪辑器已经接入了一个真实的本地媒体内核：
 
-- 真实 AI 图像生成、视频扩散和网络请求。
-- 项目文件、素材库、缩略图和产物持久化。
-- 真正的任务队列、取消、重试、进度和日志。
-- 导出编码、导出记录和断点续渲染。
-- 账户、计费、团队协作和云端同步。
+- Rust crate `src-tauri/crates/linglux-media-core` 负责项目清单、托管媒体、缓存、任务队列、任务日志、导入、派生资源和 FFmpeg 进程执行。
+- Tauri 命令通过 Channel 推送长任务事件，前端不再把大媒体字节塞进 JSON IPC。
+- 桌面导入会把用户选择的文件复制或克隆到 app data 下的项目目录，并生成 `file://`/asset protocol 可访问地址。
+- 视频、图片和音频派生资源包括缩略图、波形峰值和按需生成的视频代理文件。
+- 导出已经从纯模拟推进到 FFmpeg 流程，能够输出文件和旁路 manifest，并把完成结果回写到工作流。
 
-## 3. 技术栈
+仍属于原型阶段的能力：
 
-| 层级 | 技术 | 当前作用 |
-| --- | --- | --- |
-| 前端 | Vue 3 + TypeScript | 组织界面、状态和交互逻辑 |
-| 样式 | Tailwind CSS 4 | 构建深色桌面工作台、画布和弹窗 |
-| 构建 | Vite | 前端开发、预览和打包 |
-| 桌面宿主 | Tauri 2 | 桌面窗口、打包、Rust 命令桥接 |
-| 后端语言 | Rust | 配置持久化和 Tauri command |
-| 图标 | `@lucide/vue` | 导航、按钮、节点和面板图标 |
-| 包管理 | npm | 依赖安装和脚本执行 |
+- 工作流侧的 AI provider 调用仍主要是模拟或 host bridge smoke test。
+- 真实项目打开/最近项目列表、素材缺失恢复、跨项目资产复用和完整文件浏览还未产品化。
+- 生产级密钥存储、provider 成本统计、失败重试策略和任务日志 UI 还未完成。
+- FFmpeg 依赖当前通过本机 PATH 或常见安装目录发现，尚未作为 bundle sidecar 完整交付。
 
-## 4. 架构概览
+## Technology Stack
+
+Frontend:
+
+- Vue 3 + TypeScript + Vite。
+- Vue Composition API，主要组件使用 `<script setup lang="ts">`。
+- Nuxt UI Vue/Vite 插件提供基础 UI 组件和主题变量。
+- `@lucide/vue` 用于常见动作图标。
+- Tailwind CSS v4 通过 Nuxt UI/Tailwind 栈参与样式构建。
+- npm 和 `package-lock.json` 是当前包管理约定。
+
+Desktop host:
+
+- Tauri 2。
+- Rust edition 2021，主 crate 最低 Rust 版本声明为 `1.77.2`。
+- `tauri-plugin-dialog` 用于原生打开文件对话框。
+- `protocol-asset` 用于安全访问 app data 下的托管媒体。
+- `linglux-media-core` workspace crate 承接媒体核心能力。
+
+External runtime:
+
+- Node.js 20+ 用于前端开发和构建。
+- Rust toolchain 用于 Tauri 和 media-core。
+- FFmpeg/FFprobe 用于派生资源和导出。
+
+## Repository Map
+
+关键文件和目录：
+
+- `README.md`: 项目启动、开发、构建、故障排查和平台要求。
+- `DESIGN.md`: 当前产品和架构设计文档。
+- `AGENTS.md`: 给代码代理的仓库操作指南。
+- `MEDIA_CORE.md`: 媒体内核设计、目录布局、任务模型和验证方法。
+- `package.json`: npm scripts 与前端/Tauri 依赖。
+- `vite.config.ts`: Vite、Vue、Nuxt UI 插件与 dev server 配置。
+- `src/main.ts`: Vue app 入口，注册 Nuxt UI 插件。
+- `src/App.vue`: 应用外壳和工作流工作区。
+- `src/style.css`: 全局样式、Tailwind import、画布/编辑器工具样式。
+- `src/types/editor.ts`: 剪辑器前端数据契约。
+- `src/lib/editorProject.ts`: 项目默认值、session helper、clip factory、时间线工具和归一化逻辑。
+- `src/components/editor/LingluxEditor.vue`: 剪辑器编排层。
+- `src/components/editor/MediaBin.vue`: 媒体库、导入、筛选、多选、拖拽和预设素材。
+- `src/components/editor/PreviewMonitor.vue`: 预览监视器、视频时钟、音频同步和字幕叠加。
+- `src/components/editor/TimelinePanel.vue`: 时间线、轨道、虚拟化、拖拽、吸附、磁性主轨和波形显示。
+- `src/components/editor/AudioWaveform.vue`: Canvas 波形渲染。
+- `src/components/editor/InspectorPanel.vue`: 选中 clip 参数编辑。
+- `src/components/editor/ExportDialog.vue`: 导出预设、进度、取消和打开位置。
+- `src-tauri/src/lib.rs`: Tauri 命令、API key 设置、media-core 桥接、保存、导入、派生资源和导出。
+- `src-tauri/tauri.conf.json`: Tauri dev/build URL、窗口、安全和 bundle 配置。
+- `src-tauri/capabilities/default.json`: 当前 Tauri 权限。
+- `src-tauri/crates/linglux-media-core/`: 媒体核心 Rust crate。
+- `output/`: 开发环境导出产物目录，属于本地生成结果而不是源代码。
+
+## High-Level Architecture
 
 ```mermaid
-flowchart LR
-  User["用户"] --> UI["Vue 工作台"]
-  UI --> Canvas["工作流画布"]
-  UI --> Inspector["属性器 / 弹窗"]
-  Canvas --> Graph["节点与边状态"]
-  Inspector --> Settings["模型、参数、摄影机、API Key"]
-  UI --> Invoke["Tauri invoke"]
-  Invoke --> Host["Rust / Tauri 宿主"]
-  Host --> ApiKey["API Key 配置文件"]
-  Host --> Plan["create_video_plan 占位命令"]
-  Host -. 后续扩展 .-> Queue["任务队列"]
-  Queue -. 后续扩展 .-> Providers["AI 模型服务"]
-  Queue -. 后续扩展 .-> Artifacts["图片 / 视频 / 音频产物"]
-  Artifacts -. 状态同步 .-> UI
+flowchart TD
+  App["src/App.vue\nWorkflow shell"] --> Workflow["Node workflow\nCanvas, palette, camera, API settings"]
+  App --> Editor["LingluxEditor.vue\nTimeline editor orchestration"]
+
+  Editor --> Bin["MediaBin\nImport, search, presets"]
+  Editor --> Preview["PreviewMonitor\nVideo, audio, captions"]
+  Editor --> Timeline["TimelinePanel\nTracks, clips, waveform"]
+  Editor --> Inspector["InspectorPanel\nClip parameters"]
+  Editor --> ExportDialog["ExportDialog\nPreset, progress, location"]
+
+  Editor --> Tauri["Tauri commands\ninvoke + Channel<TaskEvent>"]
+  Workflow --> Tauri
+
+  Tauri --> Store["ProjectStore\nmanifest.json + backup"]
+  Tauri --> Tasks["TaskManager\njournal + cancellation"]
+  Tauri --> Import["Import pipeline\nclone, hard link, copy"]
+  Tauri --> Derivatives["Media derivatives\nthumbnail, waveform, proxy"]
+  Tauri --> Export["FFmpeg export\nsegments, captions, audio mix"]
+
+  Store --> AppData["App data/media-core"]
+  Import --> AppData
+  Derivatives --> AppData
+  Export --> DevOutput["output/ in dev\napp data output in packaged app"]
 ```
 
-架构边界：
+The architectural boundary is intentionally simple:
 
-- 前端负责工作流展示、交互状态、参数编辑和轻量估算。
-- Tauri 宿主负责桌面能力、配置文件、后续本地文件访问和任务调度。
-- 真实模型调用不应直接散落在组件中，应通过稳定的宿主命令或服务适配层发起。
-- 当前 `create_video_plan` 只是桥接验证命令，不代表真实视频生成链路。
+- Vue owns interactive state, visual editing decisions, optimistic UI, keyboard shortcuts and browser fallback behavior.
+- Tauri owns desktop APIs, local paths, app data directories, long-running work and command registration.
+- `linglux-media-core` owns durable media facts: project manifests, managed files, cache, task state, import and derivative generation.
+- FFmpeg owns real media transforms, but all process execution is wrapped by Rust task handles so progress and cancellation can be surfaced.
 
-## 5. 代码结构
+## Workflow Workspace
+
+The workflow workspace is the entry surface for generation and automation.
+
+Current responsibilities:
+
+- Render a node canvas with pan, drag, selection, context menu and dynamic wires.
+- Maintain workflow nodes and edges in local Vue state.
+- Define node categories through `NodeType`, `CanvasNode`, `nodeDefinitions`, `nodePaletteSections` and model option maps.
+- Expose generation controls for image/video tasks.
+- Build camera prompt cues from camera body, lens, focal length, aperture and lens effect settings.
+- Persist API key settings through Tauri commands on desktop and localStorage fallback on web preview.
+- Open the editor workspace with an edit session seeded from a source node.
+- Receive editor export results and turn them back into workflow artifacts.
+
+Important interaction rules:
+
+- Workflow nodes should remain data-driven; add new node types by extending definitions rather than duplicating markup.
+- Canvas interaction changes must preserve pointer cleanup, Escape behavior, bounds clamping, selected-node behavior and responsive sizing.
+- Camera prompt application preserves the `Camera:` prefix replacement behavior so repeated application does not stack duplicate camera lines.
+- The current model lists and token estimates are UI/product scaffolding, not stable backend contracts.
+
+Target direction:
+
+- Nodes should become business units: provider configuration, prompt assembly, media transforms, validation and artifact reuse.
+- Jobs should become runtime units: queued, cancellable, retryable, observable and cost-aware.
+- Artifacts should become durable reusable results, not just in-memory demo outputs.
+
+## Editor Workspace
+
+`LingluxEditor.vue` is the editor orchestration layer. It clones the incoming session project and owns:
+
+- Current editable project.
+- Selection state for clips and assets.
+- Multi-select asset state and media library preview state.
+- Playback/playhead/scrubbing state.
+- Timeline zoom, snapping and magnetic main track state.
+- Shortcut bindings.
+- Dirty/save state.
+- Import, derivative and export task status.
+- Object URL lifecycle for web fallback imports.
+- Project history and future stacks for undo/redo.
+
+Child components remain focused:
+
+- `MediaBin.vue` handles media import UI, tabs/search, preset assets, native dialog bridge, multi-select, marquee selection and media drag start.
+- `PreviewMonitor.vue` handles active visual preview, native video clock handoff, audio element sync, subtitle overlays and fallback states.
+- `TimelinePanel.vue` handles track rendering, clip rendering, virtualized rulers/clips, drag/drop, trim/split/delete, zoom, snapping, magnet controls and waveform/beat display.
+- `InspectorPanel.vue` edits selected clip transform, audio/effect settings and text style.
+- `ExportDialog.vue` manages export preset selection, progress, cancellation, reveal and completion.
+- `AudioWaveform.vue` renders waveform peaks in a stable canvas surface.
+
+### Editor Data Shape
+
+The editor frontend data contract lives in `src/types/editor.ts`.
+
+Key concepts:
+
+- `EditorSession`: session wrapper used when entering the editor.
+- `EditorProject`: durable project object with assets, tracks, duration, resolution, main track magnet preference and update time.
+- `MediaAsset`: project asset with type, URL, optional managed file path, proxy path, fingerprint, thumbnail, waveform peaks, duration and dimensions.
+- `TimelineTrack`: video, overlay, audio or caption track with visibility/media enable flags.
+- `TimelineClip`: time-ranged asset or text clip with transform, opacity, volume/mute, effects, text style, beat markers and visibility.
+- `TextClipStyle`: font, size, color, line metrics and optional background box settings for caption/text clips.
+- `MediaTaskSnapshot` and `MediaTaskEvent`: long-task state shared between Tauri and Vue.
+
+`src/lib/editorProject.ts` provides:
+
+- Export presets.
+- Timeline constants and zoom limits.
+- Default text style.
+- Seeded demo edit sessions.
+- Clip factories.
+- Project cloning and normalization.
+- Duration/timecode formatting.
+- Primary-track gap closing when magnet mode is enabled.
+
+Data normalization is important because Rust manifests, previous frontend state and web fallback objects may not always include newer fields. New fields should be introduced with explicit defaults in both TypeScript helpers and Rust serde models.
+
+### History Model
+
+The editor uses scoped project history entries rather than blind whole-app snapshots for every small interaction.
+
+Design intent:
+
+- Capture state before project mutations.
+- Mark the project dirty after meaningful changes.
+- Coalesce continuous edits where appropriate.
+- Keep memory bounded.
+- Preserve undo/redo for timeline, asset, track and project-level operations.
+
+New editing operations should integrate with the existing history helpers instead of introducing isolated rollback state.
+
+### Media Import
+
+There are two import paths.
+
+Desktop path:
+
+1. User chooses files through `@tauri-apps/plugin-dialog` or drops files onto the Tauri webview.
+2. Frontend calls `start_import_media` with file paths and receives task events through a `Channel<TaskEvent>`.
+3. Rust imports supported media into the project media directory.
+4. Frontend creates managed `MediaAsset` records using managed path, fingerprint and `convertFileSrc`.
+5. Frontend requests derivatives through `start_media_derivatives`.
+6. Assets receive thumbnails, waveform peaks and eventually video proxy paths.
+
+Web preview fallback:
+
+1. User imports browser `File` objects.
+2. Frontend creates object URLs.
+3. Metadata, thumbnails and waveforms are generated defensively in the browser.
+4. Object URLs are revoked through the existing cleanup path.
+
+Supported import classes include common video, image, audio and caption/text extensions. Actual validation happens in Rust for desktop imports and in browser helpers for web preview.
+
+Design rules:
+
+- Do not pass large media bytes over Tauri JSON IPC.
+- Preserve web fallback for UI development and browser preview.
+- Keep object URL cleanup reliable.
+- Derivative generation should tolerate missing FFmpeg and return warnings/errors through task state, not crash the editor.
+- Managed paths and proxy paths are desktop facts; UI should use `convertFileSrc` for display.
+
+### Timeline
+
+The timeline is the main precision surface.
+
+Current behaviors:
+
+- Tracks support video, overlay, audio and caption media kinds.
+- Empty timelines show a compact primary track by default.
+- Displayed tracks are filtered to active/compatible tracks unless content or dragging state requires more context.
+- Clips and ruler ticks are virtualized horizontally for performance.
+- Timeline has zoom controls, wheel/scroll interaction and stable pixel-per-second constraints.
+- Clip placement respects track/media compatibility.
+- Primary video track can operate in magnetic mode: clips are kept contiguous by closing gaps.
+- First visual asset on an empty timeline anchors to the primary video track.
+- Audio clips can display waveforms and generated beat markers.
+- Split logic preserves source offsets and splits beat markers for audio.
+
+Design rules:
+
+- Do not break drag cleanup, playhead scrub cleanup or global pointer listeners.
+- Keep fixed-format timeline controls dimensionally stable.
+- Preserve snapping and magnetic primary-track behavior when adding insert/move operations.
+- Keep waveform rendering bounded and performant.
+- Track-level visibility and audio enablement should affect preview/export consistently.
+
+### Preview
+
+The preview monitor represents timeline playback, not just a thumbnail.
+
+Current behaviors:
+
+- Uses a 16:9 responsive preview frame.
+- Chooses active visual content from overlay/video tracks or from media-library preview.
+- Delegates timing to the native video element when a video clip is active.
+- Synchronizes playhead updates while avoiding excessive event churn.
+- Manages audio elements for active timeline audio clips.
+- Corrects audio drift during playback and handles scrubbing.
+- Renders caption/text overlays with the clip text style.
+- Provides fallback states for missing, unsupported or failed preview sources.
+
+Design rules:
+
+- Preserve native video clock handoff.
+- Keep audio and video state cleanup on unmount.
+- Avoid UI changes that occlude preview content or make scrub feedback ambiguous.
+- When proxy media exists, preview should prefer the proxy where appropriate.
+
+### Inspector
+
+The inspector edits selected clip properties.
+
+Current editable surfaces:
+
+- Position, scale, rotation and opacity.
+- Volume and mute for audio/video clips with audio.
+- Effect intensity.
+- Text content and typography for caption/text clips.
+- Text background box size, offset, color and corner radius.
+
+Design rules:
+
+- Inspector edits should use typed patch events and participate in history.
+- Text-style defaults must be compatible with both frontend rendering and Rust export serialization.
+- Do not add inspector-only fields without adding defaults and serialization behavior.
+
+### Export
+
+Export is now a task-backed desktop flow with web fallback.
+
+Desktop flow:
+
+1. User chooses an export preset in `ExportDialog.vue`.
+2. Frontend calls `start_export` with the current project and preset.
+3. Rust creates a media task and runs FFmpeg work under task control.
+4. Exported media is written to `output/` during development or app data output in packaged builds.
+5. A manifest JSON is written beside the output.
+6. Frontend receives the `EditorExportResult`, can reveal the file location and can send the artifact back to the workflow.
+
+The FFmpeg export path currently supports:
+
+- Visual segment rendering from video/image clips.
+- Caption/text burn-in using FFmpeg drawtext-style filters.
+- Audio mixing for audio-capable clips.
+- MP4/MOV H.264 + AAC output and WebM VP9 + Opus output.
+- Warnings for skipped or missing audio cases.
+- Cancellation through task handles.
+
+Design rules:
+
+- Export should reject empty/non-exportable timelines clearly.
+- Reveal/open-location must stay scoped to known output locations.
+- Export progress, task state, output path, manifest path and warnings must remain visible to the UI.
+- Web preview fallback can simulate export, but desktop behavior should prefer the real task-backed path.
+
+## Media Core
+
+The media core is documented in more detail in `MEDIA_CORE.md`. This section summarizes the product architecture contract.
+
+The root directory is under Tauri app data:
 
 ```text
-.
-├── README.md                      # 项目介绍、环境安装、运行与构建说明
-├── AGENTS.md                      # 代码协作约定
-├── DESIGN.md                      # 本设计文档
-├── package.json                   # npm 依赖和脚本
-├── package-lock.json              # npm 锁文件
-├── vite.config.ts                 # Vite、Vue、Tailwind 和 Tauri 构建配置
-├── index.html                     # 前端入口 HTML
-├── src/
-│   ├── main.ts                    # Vue 应用挂载入口
-│   ├── App.vue                    # 当前主工作台、状态和交互原型
-│   ├── style.css                  # Tailwind 引入、基础样式和共享工具类
-│   └── assets/
-│       └── linglux-logo-no-text.png
-└── src-tauri/
-    ├── tauri.conf.json            # Tauri 窗口、构建、打包和安全配置
-    ├── Cargo.toml                 # Rust crate 配置
-    ├── capabilities/default.json  # 默认窗口权限
-    └── src/
-        ├── main.rs                # 桌面进程入口
-        └── lib.rs                 # Tauri command 和配置持久化
+media-core/
+  projects/
+    <project-id>.linglux/
+      manifest.json
+      manifest.json.bak
+      media/
+      proxies/
+  cache/
+    thumbnails/
+    waveforms/
+  tasks/
 ```
 
-生成目录和本地目录不应提交：
+Core modules:
+
+- `project_store.rs`: project directories, manifest save/load, backup fallback and revision increments.
+- `task.rs`: task snapshots, states, journal persistence and cancellation.
+- `executor.rs`: separate export and media queues.
+- `import.rs`: supported file validation, same-volume clone/hard-link optimization and buffered copy fallback.
+- `media.rs`: metadata probing, thumbnail, waveform and proxy generation.
+- `ffmpeg.rs`: FFmpeg/FFprobe discovery and process execution with progress parsing.
+- `cache.rs`: derivative cache pathing, stats, namespace clearing and pruning.
 
-- `node_modules/`
-- `dist/`
-- `src-tauri/target/`
+Task model:
 
-## 6. 前端工作台设计
+- Normal states: `queued`, `running`, `succeeded`, `failed`.
+- Cancellation states: `cancelling`, `cancelled`.
+- Recovery state: unfinished journal entries restore as `interrupted`.
+
+Queue model:
+
+- Exports use one worker.
+- Import and derivative jobs share media workers.
+- Long work should publish events rather than blocking the frontend.
 
-当前主界面集中在 `src/App.vue`，采用 Vue Composition API 和 `<script setup lang="ts">`。页面是两栏桌面工作台：
+Persistence model:
 
-- 左侧栏：品牌、工作区导航、设置入口和宿主状态。
-- 主区域：节点画布、悬浮工具箱、节点调色板、节点上下文菜单。
-- 浮层：右侧滑出属性器、摄影机控制弹窗、API Key 设置弹窗。
+- Project save writes `manifest.json.next`, syncs it, rotates the previous manifest to `manifest.json.bak`, then replaces active manifest.
+- Project load can fall back to backup if the active manifest is unreadable.
+- Revisions increment on save.
+- Large media files live in `media/`; generated video proxies live in `proxies/`; derivative cache lives under `cache/`.
 
-### 6.1 节点类型
+Cache model:
 
-节点定义由 `nodeDefinitions` 统一管理。每种节点包含显示名称、标题、角色、描述、图标、尺寸、输入/输出端口偏移和可选模型组。
+- Thumbnails and waveform JSON are keyed by content fingerprint.
+- Proxy files are project-local.
+- Cache pruning currently targets a bounded size.
+
+## Tauri Boundary
+
+Frontend-callable commands are registered in `src-tauri/src/lib.rs`.
+
+Current command surface:
 
-| 类型 | 作用 | 端口 |
-| --- | --- | --- |
-| `source` | 上传或引用本地图片资源 | 输出 |
-| `text` | 文本提示、对白、旁白或镜头描述 | 输出 |
-| `image` | AI 图片生成、增强或重绘 | 输入 + 输出 |
-| `video` | 视频扩散和动态镜头生成 | 输入 |
-| `world3d` | 3D 场景空间和相机路径约束 | 输出 |
-| `audio` | 音乐、音效、旁白或口型参考 | 输出 |
-| `storyboard` | 分镜节奏和关键帧顺序 | 输入 + 输出 |
-| `aiApp` | 批处理、风格迁移、字幕或增强自动化 | 输入 + 输出 |
-| `import` | 从已有作品导入资源 | 输出 |
-
-### 6.2 工作流图状态
-
-当前工作流状态存放在组件内：
-
-| 状态 | 说明 |
-| --- | --- |
-| `nodes` | 画布节点列表，包含类型、坐标、尺寸、状态、资源名和模型 |
-| `workflowEdges` | 节点连接线列表 |
-| `selectedNodeId` | 当前选中的节点 |
-| `nodeSequence` | 新节点 ID 序号 |
-| `dragState` | 节点拖拽状态 |
-| `canvasPanState` | 画布平移状态 |
-| `canvasScale` | 画布响应式缩放比例 |
-| `canvasOffset` | 画布平移偏移 |
-| `nodeContextMenu` | 节点右键菜单位置和目标 |
-
-当前默认图包含三类核心节点：
-
-1. `source-1`：本地参考图片。
-2. `image-1`：AI 图像生成，默认模型为 `gpt-image-1.5`。
-3. `video-1`：AI 视频扩散，默认模型为 `seedance-2.0`。
-
-### 6.3 画布交互
-
-- 节点可拖拽，坐标会被限制在画布范围内。
-- 画布可平移，偏移范围根据视口尺寸动态限制。
-- 画布在桌面宽度下自动缩放，最小缩放为 `0.58`。
-- 连接线由 `workflowEdges` 和节点端口位置计算 SVG 贝塞尔曲线。
-- 添加节点时会寻找可用位置，并尝试与当前选中节点自动连接。
-- 右键节点可打开上下文菜单并删除节点。
-- `Escape` 会关闭浮动菜单。
-
-### 6.4 节点调色板
-
-悬浮工具箱中的“添加节点”按钮会打开节点调色板。调色板分为：
-
-- 添加节点：文本、图片、视频、3D 世界、音频。
-- 功能节点：分镜格子、AI 应用。
-- 添加资源：上传、从作品导入。
-
-新增节点后会被选中，属性器打开，宿主状态会更新为添加成功。
-
-## 7. 生成参数与模型设计
-
-### 7.1 模型组
-
-当前模型只是前端选项，不会触发真实模型调用。图片和视频节点分别使用不同模型组。
-
-图片模型：
-
-- `gpt-image-1.5`
-- `chatgpt-image-latest`
-- `gpt-image-1`
-- `gpt-image-1-mini`
-
-视频模型：
-
-- `seedance-2.0`
-- `seedance-1.5-pro`
-- `kling-2.1`
-- `kling-2.1-pro`
-- `hailuo-02`
-- `hailuo-video-01`
-
-每个模型选项包含：
-
-- `id`
-- `label`
-- `subtitle`
-- `baseOutputTokens`
-
-### 7.2 Token 估算
-
-当前 token 估算是界面辅助值，不是供应商计费结果。估算逻辑：
-
-- 中文、全角字符按较高系数估算。
-- 非中文字符按约 4 字符 1 token 估算。
-- 图片节点叠加提示词、负面提示词、渲染步数和 CFG 控制成本。
-- 视频节点叠加提示词、负面提示词、运动控制成本和运动幅度倍率。
-
-后续接入真实服务时，应由模型适配层返回更准确的费用、token、时长或点数估算。
-
-### 7.3 生成按钮行为
-
-图片生成：
-
-1. 检查是否已配置 API Key。
-2. 将目标图片节点状态置为 `RENDERING`。
-3. 调用 Tauri 的 `create_video_plan` 占位命令。
-4. 成功或 Web 预览失败兜底后，将节点状态置为 `READY 100%`。
-
-视频生成：
-
-1. 检查是否已配置 API Key。
-2. 将目标视频节点状态置为 `Queued for diffusion`。
-3. 使用短延时模拟队列完成。
-4. 将节点状态置为 `Ready to render`。
-
-## 8. 摄影机控制设计
-
-摄影机控制是当前原型中较完整的提示词辅助模块。它通过机身、镜头、焦段、光圈和镜头效果组合出摄影风格提示词，再写回主提示词。
-
-### 8.1 相机分类
-
-| 分类 | 示例 |
-| --- | --- |
-| 胶片机 | ARRI 35-III、ARRIFLEX 435、Bolex H16 |
-| 数字机 | ARRI ALEXA Classic、Sony VENICE 2、RED V-RAPTOR 8K VV |
-| 照相机 | Nikon F3、Leica M6、Hasselblad 500C/M |
-| 手机 | iPhone 15 Pro Max、Xiaomi 14 Ultra、Samsung Galaxy S24 Ultra |
-
-### 8.2 组合参数
-
-- 摄影机预设：默认、电影宽景、人像浅景深、手持纪录。
-- 镜头：Zeiss Master Prime、Cooke S4/i、ARRI Signature Prime、Canon K35、Leica Summilux-C。
-- 焦段：12mm、18mm、24mm、35mm、50mm、75mm、100mm。
-- 光圈：f/1.3、f/1.4、f/2、f/2.8、f/4、f/5.6。
-- 镜头效果：散景、眩光、手持。
-
-### 8.3 提示词合并
-
-应用摄影机控制时，前端会生成一行以 `Camera:` 开头的提示词。如果原提示词里已经存在旧的 `Camera:` 行，会先移除再写入新配置，避免重复叠加。
-
-## 9. API Key 与供应商配置
-
-当前支持三个供应商选项：
-
-| 供应商 | 默认 Base URL |
-| --- | --- |
-| OpenAI | `https://api.openai.com/v1` |
-| OpenRouter | `https://openrouter.ai/api/v1` |
-| 自定义 | 默认同 OpenAI，可手动修改 |
-
-前端状态：
-
-- `apiKeySettings`：当前已保存配置。
-- `apiKeyDraft`：弹窗内编辑中的配置。
-- `apiKeyMessage`：配置状态提示。
-- `showApiKey`：显示/隐藏输入内容。
-
-Tauri 命令：
-
-```rust
-load_api_key_settings(app: AppHandle) -> Result<ApiKeySettings, String>
-save_api_key_settings(app: AppHandle, settings: ApiKeySettings) -> Result<ApiKeySettings, String>
-clear_api_key_settings(app: AppHandle) -> Result<(), String>
-```
-
-桌面模式下，配置会写入 Tauri 应用配置目录中的 `api-key-settings.json`。Web 预览模式无法调用 Tauri 命令时，会退回到 `localStorage`，键名为 `linglux-api-key-settings`。
-
-安全注意：当前 API Key 持久化是原型实现，不应视为最终安全方案。产品化时应迁移到平台安全存储或加密存储，并避免在日志、任务记录或普通项目文件中暴露密钥。
-
-## 10. Tauri 宿主设计
-
-Tauri 配置位于 `src-tauri/tauri.conf.json`。
-
-当前配置：
-
-- 产品名：`Linglux`。
-- 标识符：`com.linglux.desktop`。
-- 开发地址：`http://127.0.0.1:1420`。
-- 前端产物目录：`dist/`。
-- 主窗口：`1440x780`，最小尺寸 `960x640`。
-- 打包目标：`all`。
-- 默认权限：`core:default`。
-
-前端开发脚本使用：
-
-```sh
-vite --host 127.0.0.1 --port 1420 --strictPort
-```
-
-Rust 当前命令：
-
-| 命令 | 作用 |
-| --- | --- |
-| `create_video_plan` | 接收提示词并返回占位生产计划，用于验证桥接链路 |
-| `load_api_key_settings` | 从应用配置目录读取 API Key 设置 |
-| `save_api_key_settings` | 校验并写入 API Key 设置 |
-| `clear_api_key_settings` | 删除 API Key 设置文件 |
-
-## 11. 目标数据模型
-
-后续应将当前组件内状态迁移为明确的数据模型。
-
-### Project
-
-| 字段 | 说明 |
-| --- | --- |
-| `id` | 项目唯一标识 |
-| `name` | 项目名称 |
-| `createdAt` / `updatedAt` | 创建和更新时间 |
-| `workflowId` | 当前主工作流 |
-| `assetRoot` | 本地素材目录 |
-| `settings` | 项目级默认设置 |
-
-### WorkflowGraph
-
-| 字段 | 说明 |
-| --- | --- |
-| `id` | 工作流唯一标识 |
-| `nodes` | 节点列表 |
-| `edges` | 连接线列表 |
-| `viewport` | 画布位置、缩放和选择状态 |
-
-### WorkflowNode
-
-| 字段 | 说明 |
-| --- | --- |
-| `id` | 节点唯一标识 |
-| `type` | 节点类型 |
-| `position` | 画布坐标 |
-| `size` | 节点尺寸 |
-| `inputs` / `outputs` | 输入输出端口 |
-| `params` | 节点参数 |
-| `modelId` | 当前模型 |
-| `status` | `idle`、`queued`、`running`、`done`、`failed` |
-| `artifactIds` | 节点产物引用 |
-
-### GenerationJob
-
-| 字段 | 说明 |
-| --- | --- |
-| `id` | 任务唯一标识 |
-| `nodeId` | 触发任务的节点 |
-| `kind` | 图像生成、视频生成、增强、导出等 |
-| `provider` | 模型或服务供应商 |
-| `request` | 标准化请求参数 |
-| `progress` | 进度百分比 |
-| `logs` | 任务日志 |
-| `resultArtifactIds` | 输出产物 |
-
-### Artifact
-
-| 字段 | 说明 |
-| --- | --- |
-| `id` | 产物唯一标识 |
-| `kind` | 图片、视频、音频、字幕、项目快照等 |
-| `uri` | 本地路径或远程地址 |
-| `metadata` | 宽高、时长、编码、文件大小等 |
-| `sourceJobId` | 生成它的任务 |
-
-## 12. 推荐业务流程
-
-### 图像生成
-
-1. 用户配置 API Key、模型和提示词。
-2. 用户在图片节点点击生成。
-3. 前端创建标准化任务请求。
-4. Tauri 宿主写入任务队列。
-5. 模型适配层调用本地模型、远程 API 或代理服务。
-6. 结果保存为 `Artifact`。
-7. 前端订阅任务状态并刷新节点预览。
-
-### 视频扩散
-
-1. 用户选择图像产物和视频模型。
-2. 用户设置运动幅度、时长和分辨率。
-3. 视频节点创建 `video-diffusion` 任务。
-4. 队列系统负责排队、取消、重试和错误恢复。
-5. 完成后生成视频产物，节点进入 `done` 状态。
-
-### 导出
-
-1. 用户选择目标格式、分辨率、码率和保存位置。
-2. 宿主执行本地导出任务。
-3. 前端展示进度、日志和错误。
-4. 导出完成后写入导出记录。
-
-## 13. 安全与权限
-
-当前 Tauri capability 只声明默认窗口和 `core:default` 权限。后续新增文件系统、Shell、网络或系统级能力时，应遵守：
-
-- 按功能最小化授权。
-- 文件读写限定在用户选择的项目目录、缓存目录或导出目录。
-- API Key 使用安全存储，不写入普通项目文件。
-- 远程模型调用通过宿主或后端代理统一处理。
-- 任务日志、错误日志和调试输出必须脱敏。
-- Web 预览的 `localStorage` 兜底只用于开发，不作为生产密钥存储。
-
-## 14. 模块拆分方向
-
-当前 `App.vue` 承载了大部分原型逻辑。进入功能开发后建议拆分。
-
-前端模块：
-
-| 模块 | 职责 |
-| --- | --- |
-| `components/sidebar` | 工作区导航、设置入口、宿主状态 |
-| `components/workflow` | 画布、节点、连线、拖拽、调色板 |
-| `components/inspector` | 节点属性器、模型选择、参数编辑 |
-| `components/camera` | 摄影机资料、镜头预设、提示词合并 |
-| `components/settings` | API Key 和供应商设置 |
-| `stores/workflow` | 节点、边、选择、视口状态 |
-| `stores/settings` | API Key、供应商、默认模型 |
-| `services/tauri` | Tauri invoke 封装和 Web 预览兜底 |
-
-Rust 模块：
-
-| 模块 | 职责 |
-| --- | --- |
-| `commands` | Tauri command 入口 |
-| `settings` | API Key、供应商和应用配置 |
-| `storage` | 项目文件、素材和产物路径 |
-| `jobs` | 任务队列、状态、取消和重试 |
-| `providers` | 模型供应商适配 |
-| `export` | 本地导出和编码参数 |
-
-## 15. 构建与运行
-
-安装依赖：
-
-```sh
-npm install
-```
-
-开发 Web UI：
-
-```sh
-npm run dev
-```
-
-开发桌面应用：
-
-```sh
-npm run tauri:dev
-```
-
-构建前端：
+- `create_video_plan`
+- `load_api_key_settings`
+- `save_api_key_settings`
+- `clear_api_key_settings`
+- `create_edit_session`
+- `load_edit_project`
+- `save_edit_project`
+- `start_import_media`
+- `start_media_derivatives`
+- `start_export`
+- `cancel_media_task`
+- `get_media_task`
+- `list_media_tasks`
+- `reveal_export_file`
+
+Design rules:
+
+- Command payloads must stay compatible with `src/types/editor.ts`.
+- New Rust serde fields should be optional or have defaults unless old projects are migrated.
+- New frontend-required fields should be mirrored in Rust deliberately.
+- Long commands should use task snapshots/events and cancellation where possible.
+- Do not use raw OS paths directly in UI media elements; convert managed paths with Tauri asset helpers.
+- Keep web fallback behavior for frontend-only development unless a feature is explicitly desktop-only.
+
+## Security And Permissions
+
+Current Tauri security posture:
+
+- `src-tauri/capabilities/default.json` grants `core:default` and `dialog:allow-open`.
+- Asset protocol is enabled only for `$APPDATA/**`.
+- Desktop API key settings are persisted under the Tauri app config directory as `api-key-settings.json`.
+- Web preview uses `localStorage` key `linglux-api-key-settings`.
+- Export reveal is guarded so arbitrary paths are not opened.
+
+Security rules:
+
+- Never log full API keys.
+- Never include API keys in project manifests, task logs, artifacts, export manifests or error strings.
+- Mask keys in UI summaries.
+- Do not broaden Tauri permissions unless a user-visible feature requires it.
+- Scope file system, shell, network and secret-storage access narrowly.
+- Treat prototype JSON/localStorage key storage as non-final; production needs OS-backed secret storage or equivalent.
+
+## Styling And Interaction Direction
+
+Linglux should feel like a dense professional desktop workstation:
+
+- Dark restrained UI.
+- Compact controls.
+- Clear hierarchy.
+- Canvas/grid surfaces.
+- Teal/green and blue accents.
+- Stable panel dimensions.
+- No marketing-style landing sections inside the app surface.
+
+Frontend conventions:
+
+- Use Vue Composition API and TypeScript types.
+- Prefer existing Nuxt UI components for dialogs, popovers, buttons and form controls.
+- Use lucide icons for common tool actions.
+- Preserve semantic labels, useful `aria-label`s and button `type="button"`.
+- Avoid broad palette rewrites unless the product direction explicitly changes.
+- Keep text from overflowing buttons, tabs, cards and timeline controls.
+
+## Data And Migration Principles
+
+Project and media data will evolve. Current principles:
+
+- `EditorProject` is the frontend source of editing truth.
+- Media-core manifest is the durable desktop representation.
+- Rust and TypeScript models currently mirror many fields; keep them synchronized.
+- New fields need defaults in `normalizeEditorProject` and Rust serde defaults.
+- Old projects should load with sensible fallbacks.
+- Manifests should prefer explicit schema versions and revisions.
+- Task records should be useful for recovery and debugging without leaking secrets or large payloads.
+
+## Known Gaps
+
+Product gaps:
+
+- Real AI model/provider integration is not implemented end-to-end.
+- Node outputs are not yet durable project assets in a fully general way.
+- Project browser, recent files and missing media recovery are not complete.
+- Export queue UI and historical task log UI are minimal.
+- Provider cost/progress accounting is not implemented.
+- Production secret storage is not implemented.
+
+Technical gaps:
+
+- FFmpeg is currently discovered from the system rather than guaranteed through bundled sidecars.
+- Rust and TypeScript models are duplicated manually.
+- Export filter graph coverage is still narrow compared with a professional NLE.
+- Timeline performance needs continued validation with large projects.
+- Audio waveform and beat detection are lightweight approximations.
+- Cache cleanup and task journal retention need product policy.
+- Generated development output under `output/` should not be treated as source.
+
+## Roadmap
+
+Near-term architecture work:
+
+1. Harden media-core integration for save/load/import/export edge cases.
+2. Add project browser and recent project flow.
+3. Improve task log UI with retry, cancellation and recoverable errors.
+4. Bundle or configure FFmpeg sidecars for packaged desktop builds.
+5. Normalize provider request/response contracts for real AI jobs.
+6. Store API secrets in a production-grade secret backend.
+7. Expand export coverage for transforms, opacity, track enablement and text styling.
+8. Add focused tests around project normalization, timeline edits and Tauri bridge payloads.
+
+Medium-term product work:
+
+1. Promote generated workflow artifacts into managed project assets.
+2. Add reusable node/job/artifact library.
+3. Support durable asset relinking and project portability.
+4. Add provider cost estimation and job observability.
+5. Add richer timeline editing: transitions, keyframes, nested sequences and proxy policy controls.
+6. Add collaboration/export manifest formats only after local project semantics are stable.
+
+## Validation
+
+Use the narrowest reliable validation for touched areas:
 
 ```sh
 npm run build
 ```
 
-构建桌面应用：
+Frontend and shared TypeScript validation.
+
+```sh
+cargo check --manifest-path src-tauri/Cargo.toml
+```
+
+Tauri command, Rust bridge and host validation.
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml -p linglux-media-core
+```
+
+Media-core unit tests.
 
 ```sh
 npm run tauri:build
 ```
 
-Tauri 开发模式会根据 `src-tauri/tauri.conf.json` 自动启动 Vite 服务，不需要先单独运行 `npm run dev`。
+Packaging, window, bundle, permission and full desktop build validation.
 
-## 16. 测试策略
+FFmpeg-related changes should also be exercised on a machine where `ffmpeg` and `ffprobe` are discoverable.
 
-当前项目尚未配置专门测试框架。建议采用分层验证：
+Documentation-only edits do not require a build unless commands, configuration assumptions or executable examples changed.
 
-- 文档变更：不需要构建，除非更新了命令、配置或可执行示例。
-- 前端/TypeScript 变更：运行 `npm run build`。
-- Tauri/Rust 变更：运行 `cargo check --manifest-path src-tauri/Cargo.toml`。
-- 桥接变更：同时验证前端构建和 Rust 检查。
-- 交互变更：后续补充浏览器自动化，覆盖添加节点、拖拽、删除、API Key 设置和摄影机应用。
+## Design Principles
 
-## 17. 演进路线
-
-### 阶段 1：原型结构化
-
-- 将 `App.vue` 拆成工作流、设置、摄影机和属性器组件。
-- 将节点定义、模型定义和摄影机资料移到独立模块。
-- 将工作流图状态从组件内迁移到专门 store。
-- 为节点添加、删除、连线和 token 估算补充单元测试。
-
-### 阶段 2：项目与素材
-
-- 增加项目创建、打开、保存和最近项目。
-- 支持素材导入、缩略图、元数据读取和引用管理。
-- 将工作流图保存为项目文件。
-
-### 阶段 3：任务系统
-
-- 引入生成任务队列。
-- 实现任务创建、取消、重试、日志和进度同步。
-- 将图片/视频生成从模拟状态改为真实任务状态。
-
-### 阶段 4：模型服务
-
-- 实现供应商适配层。
-- 接入至少一个图片生成服务和一个视频生成服务。
-- 增加费用估算、错误标准化和服务健康检查。
-
-### 阶段 5：导出与桌面产品化
-
-- 实现导出节点、导出记录和失败重试。
-- 收紧 Tauri 权限和密钥存储策略。
-- 增加平台差异处理、错误诊断、更新机制、打包签名和发布流程。
-
-## 18. 设计原则
-
-- 前端表达创作意图，宿主执行桌面能力。
-- 节点是业务单元，任务是运行单元，产物是可复用结果。
-- 长任务必须有进度、取消、重试和错误恢复。
-- 密钥和素材路径默认敏感，日志必须克制。
-- 原型可以集中实现，产品化必须拆清边界。
-- 先把本地项目体验做扎实，再扩展云端协作。
+- Keep the editor usable as a desktop workstation first.
+- Keep media files local, durable and recoverable.
+- Keep long work visible, cancellable and resumable.
+- Keep frontend state immediate and expressive.
+- Keep Tauri commands small and typed.
+- Keep permissions narrow.
+- Keep provider integrations explicit rather than hidden in UI components.
+- Prefer real source state over stale docs, then update docs to match.
