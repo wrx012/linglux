@@ -1,4 +1,60 @@
 @import "tailwindcss";
+@import "@nuxt/ui";
+
+@theme {
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.dark {
+  --ui-primary: #10b981;
+  --ui-secondary: #2f6df6;
+  --ui-success: #34d399;
+  --ui-info: #60a5fa;
+  --ui-warning: #f59e0b;
+  --ui-error: #ef4444;
+  --ui-text-dimmed: #4b5563;
+  --ui-text-muted: #6b7280;
+  --ui-text-toned: #9ca3af;
+  --ui-text: #d1d5db;
+  --ui-text-highlighted: #ffffff;
+  --ui-text-inverted: #070708;
+  --ui-bg: #070708;
+  --ui-bg-muted: #0e0e11;
+  --ui-bg-elevated: #15151a;
+  --ui-bg-accented: #222228;
+  --ui-bg-inverted: #f4f4f5;
+  --ui-border: #222228;
+  --ui-border-muted: #1d1d22;
+  --ui-border-accented: #303038;
+  --ui-border-inverted: #d4d4d8;
+  --ui-radius: 0.25rem;
+}
+
+.light {
+  --ui-primary: #047857;
+  --ui-secondary: #2563eb;
+  --ui-success: #059669;
+  --ui-info: #2563eb;
+  --ui-warning: #d97706;
+  --ui-error: #dc2626;
+  --ui-text-dimmed: #94a3b8;
+  --ui-text-muted: #64748b;
+  --ui-text-toned: #475569;
+  --ui-text: #334155;
+  --ui-text-highlighted: #0f172a;
+  --ui-text-inverted: #ffffff;
+  --ui-bg: #f8fafc;
+  --ui-bg-muted: #f1f5f9;
+  --ui-bg-elevated: #ffffff;
+  --ui-bg-accented: #e2e8f0;
+  --ui-bg-inverted: #0f172a;
+  --ui-border: #dbe2ea;
+  --ui-border-muted: #e5eaf0;
+  --ui-border-accented: #cbd5e1;
+  --ui-border-inverted: #334155;
+  --ui-radius: 0.25rem;
+}
 
 @layer base {
   :root {
@@ -9,6 +65,12 @@
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
+  }
+
+  :root.light,
+  :root.light body {
+    color: #334155;
+    background: #f8fafc;
   }
 
   html,
@@ -34,11 +96,190 @@
   }
 }
 
+html.light .canvas-grid {
+  background:
+    radial-gradient(circle at center, rgb(5 150 105 / 0.14) 0 1px, transparent 1.8px) 13px
+      13px / 32px 32px,
+    #f4f7fa;
+  scrollbar-color: #cbd5e1 #eef2f7;
+}
+
+html.light .editor-scrollbar {
+  scrollbar-color: #cbd5e1 #f1f5f9;
+}
+
+html.light .editor-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+html.light .editor-scrollbar::-webkit-scrollbar-thumb {
+  border-color: #f1f5f9;
+  background: #cbd5e1;
+}
+
+html.light .editor-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+html.light .socket {
+  background: #ffffff;
+}
+
+html.light :where(
+  [class~="bg-[#070708]"],
+  [class~="bg-[#090d14]"],
+  [class~="bg-[#0b0b0d]"],
+  [class~="bg-[#0b1018]"],
+  [class~="bg-[#0c1018]"],
+  [class~="bg-[#0d0d10]"],
+  [class~="bg-[#0d1017]"],
+  [class~="bg-[#0e0e11]"],
+  [class~="bg-[#0f0f12]"],
+  [class~="bg-[#0f121a]"],
+  [class~="bg-[#0f131c]"],
+  [class~="bg-[#101014]"],
+  [class~="bg-[#11151e]"],
+  [class~="bg-[#111620]"]
+) {
+  background-color: #f8fafc !important;
+}
+
+html.light :where(
+  [class~="bg-[#121216]"],
+  [class~="bg-[#12141b]"],
+  [class~="bg-[#15151a]"],
+  [class~="bg-[#15161d]"],
+  [class~="bg-[#151923]"],
+  [class~="bg-[#151a24]"],
+  [class~="bg-[#171b25]"],
+  [class~="bg-[#18181b]"],
+  [class~="bg-[#0f151d]/70"],
+  [class~="bg-[#111722]/70"],
+  [class~="bg-[#1b1d27]"],
+  [class~="bg-[#1c1c20]"],
+  [class~="bg-[#1d1d1f]"]
+) {
+  background-color: #ffffff !important;
+}
+
+html.light :where(
+  [class~="bg-[#101824]"],
+  [class~="bg-[#121a28]"]
+) {
+  background-color: #eef4ff !important;
+}
+
+html.light :where(
+  [class~="bg-[#1f1f23]"],
+  [class~="bg-[#202024]"],
+  [class~="bg-[#202638]"],
+  [class~="bg-[#24242a]"],
+  [class~="bg-[#2a2a30]"],
+  [class~="bg-[#2b2b2e]"],
+  [class~="bg-[#303744]"],
+  [class~="bg-[#3d4655]"],
+  [class~="bg-[#4a4a51]"],
+  [class~="bg-[#596273]"],
+  [class~="bg-[#a3a7b2]"]
+) {
+  background-color: #e9eef4 !important;
+}
+
+html.light :where(
+  [class~="border-[#101318]"],
+  [class~="border-[#20242f]"],
+  [class~="border-[#222228]"],
+  [class~="border-[#23232c]"],
+  [class~="border-[#242b3a]"],
+  [class~="border-[#252c39]"],
+  [class~="border-[#262630]"],
+  [class~="border-[#262c38]"],
+  [class~="border-[#283044]"],
+  [class~="border-[#2a3142]"],
+  [class~="border-[#2a3344]"],
+  [class~="border-[#2b3040]"],
+  [class~="border-[#2d3445]"],
+  [class~="border-[#2f2f36]"],
+  [class~="border-[#303034]"],
+  [class~="border-[#303037]"],
+  [class~="border-[#30394a]"],
+  [class~="border-[#343c4b]"],
+  [class~="border-[#36363e]"],
+  [class~="border-[#4b5563]"]
+) {
+  border-color: #d7dee8 !important;
+}
+
+html.light :where(
+  [class~="ring-[#222228]"],
+  [class~="ring-[#25303a]"],
+  [class~="ring-[#27313a]"],
+  [class~="ring-[#2a3344]"],
+  [class~="ring-[#2f2f36]"],
+  [class~="ring-[#35353d]"],
+  [class~="ring-[#3a3a42]"],
+  [class~="ring-[#4b4b55]"],
+  [class~="ring-[#4b5563]"]
+) {
+  --tw-ring-color: #cbd5e1 !important;
+}
+
+html.light :where(
+  [class~="text-[#f8fafc]"],
+  [class~="text-[#f4f4f5]"],
+  [class~="text-[#f3f4f6]"],
+  [class~="text-[#eef2f7]"],
+  [class~="text-[#e5e7eb]"],
+  [class~="text-[#d9dde7]"],
+  [class~="text-[#d8deea]"],
+  [class~="text-[#d1d5db]"],
+  [class~="text-[#cbd5e1]"],
+  [class~="text-[#c9d5e6]"],
+  [class~="text-[#aeb7c7]"]
+) {
+  color: #1e293b !important;
+}
+
+html.light :where(
+  [class~="text-[#9ca3af]"],
+  [class~="text-[#9aa7bc]"],
+  [class~="text-[#8993a3]"],
+  [class~="text-[#8ea0b8]"],
+  [class~="text-[#8b95a6]"],
+  [class~="text-[#8a8a8f]"],
+  [class~="text-[#858b99]"],
+  [class~="text-[#85858e]"],
+  [class~="text-[#7f8da3]"],
+  [class~="text-[#788395]"],
+  [class~="text-[#778398]"],
+  [class~="text-[#718097]"],
+  [class~="text-[#6b7280]"],
+  [class~="text-[#687386]"],
+  [class~="text-[#5f6b7d]"],
+  [class~="text-[#536079]"],
+  [class~="text-[#536077]"],
+  [class~="text-[#4b5563]"]
+) {
+  color: #64748b !important;
+}
+
+html.light [class~="hover:text-white"]:hover,
+html.light [class~="data-[state=active]:text-white"][data-state="active"] {
+  color: #0f172a !important;
+}
+
+html.light [class~="hover:bg-[#1b2230]"]:hover,
+html.light [class~="hover:bg-[#1d1d22]"]:hover,
+html.light [class~="hover:bg-[#202636]"]:hover,
+html.light [class~="hover:bg-[#202a3a]"]:hover,
+html.light [class~="hover:bg-[#25252a]"]:hover,
+html.light [class~="hover:bg-[#26262a]"]:hover {
+  background-color: #e2e8f0 !important;
+}
+
 @layer utilities {
   .inspector-slide-enter-active,
-  .inspector-slide-leave-active,
-  .node-palette-enter-active,
-  .node-palette-leave-active {
+  .inspector-slide-leave-active {
     transition:
       transform 180ms ease,
       opacity 180ms ease;
@@ -48,12 +289,6 @@
   .inspector-slide-leave-to {
     opacity: 0;
     transform: translateX(100%);
-  }
-
-  .node-palette-enter-from,
-  .node-palette-leave-to {
-    opacity: 0;
-    transform: translateY(-6px) scale(0.98);
   }
 
   .canvas-grid {
@@ -81,6 +316,39 @@
     );
     opacity: 0.48;
     pointer-events: none;
+  }
+
+  .scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  .editor-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #30394c #10141c;
+  }
+
+  .editor-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .editor-scrollbar::-webkit-scrollbar-track {
+    background: #10141c;
+  }
+
+  .editor-scrollbar::-webkit-scrollbar-thumb {
+    border: 2px solid #10141c;
+    border-radius: 999px;
+    background: #30394c;
+  }
+
+  .editor-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #46536d;
   }
 
   .socket {

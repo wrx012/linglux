@@ -20,13 +20,16 @@ import {
   KeyRound,
   Layers,
   MousePointer2,
+  Moon,
   Plus,
   Save,
+  Scissors,
   Server,
   Settings,
   SlidersHorizontal,
   Sparkles,
   Smartphone,
+  Sun,
   Trash2,
   Type as TypeIcon,
   Upload,
@@ -36,8 +39,12 @@ import {
   Clock,
 } from "@lucide/vue";
 import lingluxLogo from "./assets/linglux-logo-no-text.png";
+import LingluxEditor from "./components/editor/LingluxEditor.vue";
+import type { Artifact, EditSession, EditorExportResult, EditorSessionSeed } from "./types/editor";
+import { createSeededEditSession } from "./lib/editorProject";
 
 type ApiProviderValue = "openai" | "openrouter" | "custom";
+type AppTheme = "dark" | "light";
 
 interface ApiKeySettings {
   provider: string;
@@ -50,6 +57,13 @@ interface SupportNavItem {
   meta?: "saved" | "empty";
   icon: Component;
   action?: "api-key";
+}
+
+interface WorkspaceNavItem {
+  label: string;
+  count?: string;
+  icon: Component;
+  action?: WorkspaceAction;
 }
 
 type CameraCategory = "film" | "digital" | "photo" | "phone";
@@ -96,6 +110,7 @@ interface LensEffect {
 }
 
 const API_KEY_STORAGE_KEY = "linglux-api-key-settings";
+const THEME_STORAGE_KEY = "linglux-theme";
 const CAMERA_PROMPT_PREFIX = "Camera:";
 
 const apiProviderOptions: Array<{ label: string; value: ApiProviderValue; baseUrl: string }> = [
@@ -332,6 +347,7 @@ const selectedFocalLength = ref("12mm");
 const selectedAperture = ref("f/1.3");
 const selectedLensEffect = ref("bokeh");
 const hostStatus = ref("Tauri host ready");
+const isSettingsPanelOpen = ref(false);
 const isApiKeyPanelOpen = ref(false);
 const isSavingApiKey = ref(false);
 const isClearingApiKey = ref(false);
@@ -339,10 +355,15 @@ const showApiKey = ref(false);
 const apiKeyMessage = ref("正在读取 API Key 设置...");
 const apiKeySettings = ref<ApiKeySettings>({ ...defaultApiKeySettings });
 const apiKeyDraft = ref<ApiKeySettings>({ ...defaultApiKeySettings });
+const activeTheme = ref<AppTheme>(readThemePreference());
+
+applyDocumentTheme(activeTheme.value);
 
 type ModelGroup = "image" | "video";
 type NodeType = "source" | "text" | "image" | "video" | "world3d" | "audio" | "storyboard" | "aiApp" | "import";
 type NodeSide = "left" | "right";
+type WorkspaceMode = "workflow" | "editor";
+type WorkspaceAction = WorkspaceMode;
 
 interface CanvasNode {
   id: string;
@@ -429,8 +450,8 @@ interface WireDisplay {
 }
 
 const canvasBounds = {
-  width: 1160,
-  height: 760,
+  width: 1560,
+  height: 920,
   padding: 16,
   topPadding: 64,
 };
@@ -441,11 +462,6 @@ const MIN_CANVAS_SCALE = 0.58;
 const NODE_CONTEXT_MENU_WIDTH = 178;
 const NODE_CONTEXT_MENU_HEIGHT = 44;
 const NODE_CONTEXT_MENU_MARGIN = 8;
-const MIN_UI_SCALE_WIDTH = 960;
-const MIN_UI_SCALE_HEIGHT = 640;
-const TARGET_UI_SCALE_WIDTH = 1200;
-const TARGET_UI_SCALE_HEIGHT = 800;
-const MAX_UI_SCALE = 1.25;
 
 const nodeDefinitions: Record<NodeType, NodeDefinition> = {
   source: {
@@ -489,6 +505,7 @@ const nodeDefinitions: Record<NodeType, NodeDefinition> = {
     width: 320,
     height: 620,
     inputOffset: 120,
+    outputOffset: 140,
     modelGroup: "video",
   },
   world3d: {
@@ -627,6 +644,9 @@ const workflowEdges = ref<WorkflowEdge[]>([
   { id: "edge-image-1-video-1", from: "image-1", to: "video-1" },
 ]);
 
+const artifacts = reactive<Artifact[]>([]);
+const activeWorkspace = ref<WorkspaceMode>("workflow");
+const editSession = ref<EditSession>(createSeededEditSession({ sourceNodeId: "video-1", assetName: "linglux_generated_take.mp4" }));
 const selectedNodeId = ref("image-1");
 const nodeSequence = ref(2);
 const dragState = ref<DragState | null>(null);
@@ -635,14 +655,13 @@ const nodeContextMenu = ref<NodeContextMenuState | null>(null);
 const canvasViewport = ref<HTMLElement | null>(null);
 const canvasScale = ref(1);
 const canvasOffset = reactive<Point>({ x: 0, y: 0 });
-const uiScale = ref(1);
-const isCompactViewport = ref(false);
 const isInspectorOpen = ref(false);
 const isNodePaletteOpen = ref(false);
 let canvasResizeObserver: ResizeObserver | undefined;
 
-const workspaceNav = [
-  { label: "我的项目", count: "18", icon: Folder },
+const workspaceNav: WorkspaceNavItem[] = [
+  { label: "我的项目", count: "18", icon: Folder, action: "workflow" },
+  { label: "剪辑器", count: "V1", icon: Film, action: "editor" },
   { label: "模型设置", icon: SlidersHorizontal },
   { label: "导出记录", icon: Download },
 ];
@@ -728,27 +747,18 @@ const nodeContextMenuStyle = computed(() => ({
   left: `${nodeContextMenu.value?.x ?? 0}px`,
   top: `${nodeContextMenu.value?.y ?? 0}px`,
 }));
-const appShellStyle = computed(() => {
-  if (isCompactViewport.value) {
-    return {};
-  }
-
-  return {
-    zoom: uiScale.value,
-  };
-});
 
 onMounted(() => {
   void loadApiKeySettings();
 
-  updateViewportSizing();
+  updateCanvasScale();
   canvasResizeObserver = new ResizeObserver(updateCanvasScale);
 
   if (canvasViewport.value) {
     canvasResizeObserver.observe(canvasViewport.value);
   }
 
-  window.addEventListener("resize", updateViewportSizing);
+  window.addEventListener("resize", updateCanvasScale);
   window.addEventListener("keydown", handleWindowKeydown);
 });
 
@@ -821,14 +831,142 @@ function openSupportItem(action?: SupportNavItem["action"]) {
   }
 }
 
+function isWorkspaceItemActive(item: WorkspaceNavItem) {
+  return item.action === activeWorkspace.value;
+}
+
+function openWorkspaceItem(action?: WorkspaceNavItem["action"]) {
+  closeFloatingPanels();
+
+  if (action === "workflow") {
+    activeWorkspace.value = "workflow";
+    hostStatus.value = "Workflow ready";
+    window.setTimeout(updateCanvasScale, 0);
+    return;
+  }
+
+  if (action === "editor") {
+    void openEditorFromNode(primaryVideoNode.value);
+  }
+}
+
+async function openEditorFromNode(node?: CanvasNode | Event) {
+  const targetNode = isCanvasNode(node) ? node : primaryVideoNode.value;
+  const seed: EditorSessionSeed = {
+    sourceNodeId: targetNode?.id,
+    assetName: targetNode?.assetName ?? (targetNode ? `${targetNode.id}_generated.mp4` : "linglux_editor_seed.mp4"),
+    assetUrl: targetNode ? `linglux://node/${targetNode.id}` : "linglux://editor/empty",
+    duration: 12,
+  };
+
+  closeFloatingPanels();
+  closeInspector();
+
+  try {
+    editSession.value = await invoke<EditSession>("create_edit_session", { seed });
+  } catch {
+    editSession.value = createSeededEditSession(seed);
+  }
+
+  activeWorkspace.value = "editor";
+  hostStatus.value = targetNode ? `Editing ${targetNode.id}` : "Editor ready";
+}
+
+function returnToWorkflow() {
+  activeWorkspace.value = "workflow";
+  hostStatus.value = "Workflow ready";
+  window.setTimeout(updateCanvasScale, 0);
+}
+
+function handleEditorExport(result: EditorExportResult) {
+  artifacts.push(result.artifact);
+
+  const sourceNode = findNode(result.artifact.sourceNodeId);
+  const position = getNewNodePosition("video", sourceNode);
+  const node = createNode("video", position.x, position.y);
+
+  node.assetName = result.artifact.name;
+  node.status = "Edited ready";
+  node.modelId = sourceNode?.modelId ?? getDefaultModelId("video");
+  nodes.push(node);
+
+  if (sourceNode) {
+    connectNodes(sourceNode, node);
+  }
+
+  selectedNodeId.value = node.id;
+  activeWorkspace.value = "workflow";
+  isInspectorOpen.value = true;
+  hostStatus.value = `Exported ${result.preset.label}`;
+  window.setTimeout(updateCanvasScale, 0);
+}
+
 function openApiKeyPanel() {
   apiKeyDraft.value = { ...apiKeySettings.value };
   isApiKeyPanelOpen.value = true;
 }
 
+function openSettingsPanel() {
+  isSettingsPanelOpen.value = true;
+}
+
+function closeSettingsPanel() {
+  isSettingsPanelOpen.value = false;
+}
+
+function updateSettingsPanelOpen(open: boolean) {
+  isSettingsPanelOpen.value = open;
+}
+
+function openApiKeyFromSettings() {
+  closeSettingsPanel();
+  openApiKeyPanel();
+}
+
+function readThemePreference(): AppTheme {
+  if (typeof window === "undefined") {
+    return "dark";
+  }
+
+  try {
+    return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
+  } catch {
+    return "dark";
+  }
+}
+
+function applyDocumentTheme(theme: AppTheme) {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  document.documentElement.classList.remove("dark", "light");
+  document.documentElement.classList.add(theme);
+  document.documentElement.style.colorScheme = theme;
+}
+
+function selectTheme(theme: AppTheme) {
+  activeTheme.value = theme;
+  applyDocumentTheme(theme);
+
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // The selected theme still applies for the current session when storage is unavailable.
+    }
+  }
+}
+
 function closeApiKeyPanel() {
   isApiKeyPanelOpen.value = false;
   showApiKey.value = false;
+}
+
+function updateApiKeyPanelOpen(open: boolean) {
+  if (!open && !isSavingApiKey.value && !isClearingApiKey.value) {
+    closeApiKeyPanel();
+  }
 }
 
 function selectApiProvider(provider: ApiProviderValue) {
@@ -840,6 +978,10 @@ function selectApiProvider(provider: ApiProviderValue) {
   if (!apiKeyDraft.value.baseUrl || apiKeyDraft.value.baseUrl === currentBaseUrl) {
     apiKeyDraft.value.baseUrl = nextBaseUrl;
   }
+}
+
+function updateApiProvider(value: string | number) {
+  selectApiProvider(String(value) as ApiProviderValue);
 }
 
 async function saveApiKeySettings() {
@@ -899,28 +1041,6 @@ function ensureApiKeyConfigured() {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
-}
-
-function updateUiScale() {
-  isCompactViewport.value = window.innerWidth < 760;
-
-  if (isCompactViewport.value) {
-    uiScale.value = 1;
-    return;
-  }
-
-  const widthProgress =
-    (window.innerWidth - MIN_UI_SCALE_WIDTH) / (TARGET_UI_SCALE_WIDTH - MIN_UI_SCALE_WIDTH);
-  const heightProgress =
-    (window.innerHeight - MIN_UI_SCALE_HEIGHT) / (TARGET_UI_SCALE_HEIGHT - MIN_UI_SCALE_HEIGHT);
-  const scaleProgress = clamp(Math.min(widthProgress, heightProgress), 0, 1);
-
-  uiScale.value = Number((1 + (MAX_UI_SCALE - 1) * scaleProgress).toFixed(3));
-}
-
-function updateViewportSizing() {
-  updateUiScale();
-  updateCanvasScale();
 }
 
 function updateCanvasScale() {
@@ -999,13 +1119,22 @@ function closeCameraPanel() {
   isCameraPanelOpen.value = false;
 }
 
+function updateCameraPanelOpen(open: boolean) {
+  if (!open) {
+    closeCameraPanel();
+  }
+}
+
 function selectCameraCategory(category: CameraCategory) {
   selectedCameraCategory.value = category;
   selectedCameraBodyId.value = cameraBodies.find((camera) => camera.category === category)?.id ?? selectedCameraBodyId.value;
 }
 
-function selectCameraPreset(event: Event) {
-  const presetValue = (event.target as HTMLSelectElement).value;
+function updateCameraCategory(value: string | number) {
+  selectCameraCategory(String(value) as CameraCategory);
+}
+
+function selectCameraPreset(presetValue: string) {
   const preset = cameraPresets.find((option) => option.value === presetValue);
 
   selectedCameraPreset.value = presetValue;
@@ -1018,6 +1147,10 @@ function selectCameraPreset(event: Event) {
   selectedFocalLength.value = preset.focalLength;
   selectedAperture.value = preset.aperture;
   selectedLensEffect.value = preset.effect;
+}
+
+function updateCameraPreset(value: string | number) {
+  selectCameraPreset(String(value));
 }
 
 function createCameraPromptCue() {
@@ -1309,9 +1442,12 @@ function closeInspector() {
   isInspectorOpen.value = false;
 }
 
-function toggleNodePalette() {
-  isNodePaletteOpen.value = !isNodePaletteOpen.value;
-  closeNodeContextMenu();
+function updateNodePaletteOpen(open: boolean) {
+  isNodePaletteOpen.value = open;
+
+  if (open) {
+    closeNodeContextMenu();
+  }
 }
 
 function closeNodePalette() {
@@ -1354,19 +1490,19 @@ function openNodeContextMenu(id: string, event: MouseEvent) {
 
   const maxX = Math.max(
     NODE_CONTEXT_MENU_MARGIN,
-    window.innerWidth / uiScale.value - NODE_CONTEXT_MENU_WIDTH - NODE_CONTEXT_MENU_MARGIN,
+    window.innerWidth - NODE_CONTEXT_MENU_WIDTH - NODE_CONTEXT_MENU_MARGIN,
   );
   const maxY = Math.max(
     NODE_CONTEXT_MENU_MARGIN,
-    window.innerHeight / uiScale.value - NODE_CONTEXT_MENU_HEIGHT - NODE_CONTEXT_MENU_MARGIN,
+    window.innerHeight - NODE_CONTEXT_MENU_HEIGHT - NODE_CONTEXT_MENU_MARGIN,
   );
 
   selectedNodeId.value = node.id;
   isInspectorOpen.value = true;
   nodeContextMenu.value = {
     nodeId: node.id,
-    x: clamp(event.clientX / uiScale.value, NODE_CONTEXT_MENU_MARGIN, maxX),
-    y: clamp(event.clientY / uiScale.value, NODE_CONTEXT_MENU_MARGIN, maxY),
+    x: clamp(event.clientX, NODE_CONTEXT_MENU_MARGIN, maxX),
+    y: clamp(event.clientY, NODE_CONTEXT_MENU_MARGIN, maxY),
   };
 }
 
@@ -1517,8 +1653,8 @@ function moveDraggedNode(event: PointerEvent) {
     return;
   }
 
-  const nextX = drag.originX + (event.clientX - drag.startX) / (canvasScale.value * uiScale.value);
-  const nextY = drag.originY + (event.clientY - drag.startY) / (canvasScale.value * uiScale.value);
+  const nextX = drag.originX + (event.clientX - drag.startX) / canvasScale.value;
+  const nextY = drag.originY + (event.clientY - drag.startY) / canvasScale.value;
 
   node.x = clamp(Math.round(nextX), canvasBounds.padding, canvasBounds.width - node.width - canvasBounds.padding);
   node.y = clamp(Math.round(nextY), canvasBounds.topPadding, canvasBounds.height - node.height - canvasBounds.padding);
@@ -1565,8 +1701,8 @@ function moveCanvasPan(event: PointerEvent) {
   const xLimit = getCanvasPanLimit("x");
   const yLimit = getCanvasPanLimit("y");
 
-  canvasOffset.x = Math.round(clamp(pan.originX + (event.clientX - pan.startX) / uiScale.value, -xLimit, xLimit));
-  canvasOffset.y = Math.round(clamp(pan.originY + (event.clientY - pan.startY) / uiScale.value, -yLimit, yLimit));
+  canvasOffset.x = Math.round(clamp(pan.originX + event.clientX - pan.startX, -xLimit, xLimit));
+  canvasOffset.y = Math.round(clamp(pan.originY + event.clientY - pan.startY, -yLimit, yLimit));
 }
 
 function stopCanvasPan(event?: PointerEvent) {
@@ -1631,65 +1767,79 @@ onUnmounted(() => {
   stopDrag();
   stopCanvasPan();
   canvasResizeObserver?.disconnect();
-  window.removeEventListener("resize", updateViewportSizing);
+  window.removeEventListener("resize", updateCanvasScale);
   window.removeEventListener("keydown", handleWindowKeydown);
 });
 </script>
 
 <template>
+  <UApp :toaster="null">
   <main
-    class="grid h-dvh grid-cols-[236px_minmax(0,1fr)] overflow-hidden bg-[#070708] text-[#d1d5db] max-[760px]:h-auto max-[760px]:min-h-dvh max-[760px]:grid-cols-1"
-    :style="appShellStyle"
+    class="grid h-dvh overflow-hidden bg-[#070708] text-[#d1d5db] max-[760px]:h-auto max-[760px]:min-h-dvh"
+    :class="activeWorkspace === 'editor' ? 'grid-cols-1' : 'grid-cols-[236px_minmax(0,1fr)] max-[760px]:grid-cols-1'"
     @pointerdown="closeFloatingPanels"
   >
-    <aside class="flex min-w-0 flex-col border-r border-[#222228] bg-[#0e0e11] max-[760px]:border-r-0 max-[760px]:border-b">
-      <header class="grid h-[72px] grid-cols-[34px_1fr] items-center gap-3 border-b border-[#222228] px-5">
+    <UCard
+      v-if="activeWorkspace !== 'editor'"
+      as="aside"
+      variant="subtle"
+      class="min-w-0 rounded-none border-0 border-r border-default bg-muted ring-0 max-[760px]:border-r-0 max-[760px]:border-b"
+      :ui="{ body: 'flex h-full min-w-0 flex-col p-0' }"
+    >
+      <header class="grid h-[72px] grid-cols-[34px_1fr_auto] items-center gap-3 border-b border-default px-5">
         <img :src="lingluxLogo" alt="" class="size-[34px] rounded-[9px] object-contain shadow-[0_0_26px_rgb(16_185_129/0.24)]" />
         <div class="min-w-0">
-          <h1 class="truncate text-[14px] font-bold leading-[18px] text-white">灵帧AI</h1>
-          <p class="truncate text-[9px] font-semibold leading-3 text-[#6b7280]">LINGLUX AI</p>
+          <h1 class="truncate text-[14px] font-bold leading-[18px] text-highlighted">灵帧AI</h1>
+          <p class="truncate text-[9px] font-semibold leading-3 text-muted">LINGLUX AI</p>
         </div>
+        <UBadge color="primary" variant="subtle" size="sm">Beta</UBadge>
       </header>
 
-      <button class="mx-3 mb-6 mt-[18px] inline-flex h-10 items-center gap-2.5 rounded-lg border-0 bg-[#1a1a22] px-3.5 text-[13px] font-bold text-[#10b981] hover:bg-[#1e2424] max-[760px]:mb-4" type="button">
+      <UButton color="primary" variant="soft" size="lg" class="mx-3 mb-6 mt-[18px] justify-start max-[760px]:mb-4" type="button">
         <Plus :size="15" />
         新建工作流
-      </button>
+      </UButton>
 
       <nav class="mx-3 mb-[22px] grid gap-1.5" aria-label="Workspace">
         <p class="mb-2.5 ml-3 text-[10px] font-extrabold leading-3 text-[#4b5563]">工作区</p>
-        <button v-for="item in workspaceNav" :key="item.label" class="grid h-[34px] grid-cols-[24px_1fr_auto] items-center gap-1.5 rounded-lg px-3 text-left text-[12px] text-[#9ca3af] hover:bg-[#15151a]" type="button">
-          <span class="grid size-4 place-items-center rounded-[3px] border border-[#33333a] bg-[#1d1d22] text-[#6b7280]">
+        <UButton
+          v-for="item in workspaceNav"
+          :key="item.label"
+          :color="isWorkspaceItemActive(item) ? 'primary' : 'neutral'"
+          :variant="isWorkspaceItemActive(item) ? 'soft' : 'ghost'"
+          size="sm"
+          class="w-full justify-start gap-2"
+          type="button"
+          @click="openWorkspaceItem(item.action)"
+        >
+          <span class="grid size-5 shrink-0 place-items-center rounded bg-elevated text-toned ring-1 ring-default">
             <component :is="item.icon" :size="14" />
           </span>
-          <span class="truncate">{{ item.label }}</span>
-          <small v-if="item.count" class="inline-flex min-h-[17px] min-w-[26px] items-center justify-center rounded-full bg-[#1f1f24] text-[10px] text-[#6b7280]">
+          <span class="min-w-0 flex-1 truncate text-left">{{ item.label }}</span>
+          <UBadge v-if="item.count" color="neutral" variant="subtle" size="sm" class="ml-auto">
             {{ item.count }}
-          </small>
-        </button>
+          </UBadge>
+        </UButton>
       </nav>
 
       <nav class="mx-3 mb-[22px] grid gap-1.5" aria-label="Settings and support">
         <p class="mb-2.5 ml-3 text-[10px] font-extrabold leading-3 text-[#4b5563]">设置与支持</p>
-        <button
+        <UButton
           v-for="item in supportNav"
           :key="item.label"
-          class="grid h-[34px] grid-cols-[24px_1fr_auto] items-center gap-1.5 rounded-lg px-3 text-left text-[12px] text-[#9ca3af] hover:bg-[#15151a]"
-          :class="isApiKeyPanelOpen && item.action === 'api-key' ? 'bg-[#15151a] text-[#d1d5db]' : ''"
+          :color="isApiKeyPanelOpen && item.action === 'api-key' ? 'primary' : 'neutral'"
+          :variant="isApiKeyPanelOpen && item.action === 'api-key' ? 'soft' : 'ghost'"
+          size="sm"
+          class="w-full justify-start gap-2"
           type="button"
           @click="openSupportItem(item.action)"
         >
-          <span class="grid size-4 place-items-center text-[#10b981]">
+          <span class="grid size-5 shrink-0 place-items-center text-primary">
             <component :is="item.icon" :size="14" />
           </span>
-          <span class="truncate">{{ item.label }}</span>
-          <i
-            v-if="item.meta"
-            class="size-2 rounded-full"
-            :class="item.meta === 'saved' ? 'bg-[#10b981] shadow-[0_0_14px_rgb(16_185_129/0.48)]' : 'bg-[#4b5563]'"
-            aria-hidden="true"
-          ></i>
-        </button>
+          <span class="min-w-0 flex-1 truncate text-left">{{ item.label }}</span>
+          <UChip v-if="item.meta" :color="item.meta === 'saved' ? 'success' : 'neutral'" standalone inset size="sm" class="ml-auto" />
+        </UButton>
       </nav>
 
       <footer class="mt-auto grid gap-3.5 border-t border-[#222228] bg-[#070708] px-[18px] pb-3.5 pt-5 max-[760px]:mt-1.5">
@@ -1702,54 +1852,70 @@ onUnmounted(() => {
           <span>v0.1.0</span>
         </div>
       </footer>
-    </aside>
+    </UCard>
 
     <section
+      v-if="activeWorkspace === 'workflow'"
       ref="canvasViewport"
       class="canvas-grid relative min-w-0 overflow-auto bg-[#070708] [scrollbar-color:#2a2a32_#0b0b0d] max-[760px]:h-[760px]"
       :class="isCanvasPanning ? 'cursor-grabbing' : 'cursor-grab'"
       aria-label="AI workflow canvas"
       @pointerdown="startCanvasPan"
     >
-      <div data-canvas-pan-block class="sticky left-1/2 top-5 z-10 inline-flex min-h-11 -translate-x-1/2 flex-wrap items-center gap-2 rounded-full border border-[#222228] bg-[#101014]/90 px-3.5 py-1.5 shadow-[0_10px_30px_rgb(0_0_0/0.35)] backdrop-blur max-[760px]:left-4 max-[760px]:translate-x-0" aria-label="Floating tools">
-        <span class="text-[11px] font-semibold text-[#6b7280]">工具箱</span>
-        <b class="h-4 w-px bg-[#222228]" aria-hidden="true"></b>
-        <button v-for="tool in tools" :key="tool" type="button" :title="tool" class="grid size-7 place-items-center rounded-full border border-[#222228] bg-[#141418] text-[10px] font-extrabold text-[#9ca3af] hover:text-[#10b981]">
+      <UCard
+        data-canvas-pan-block
+        variant="subtle"
+        class="sticky left-1/2 top-5 z-10 inline-block min-h-11 -translate-x-1/2 rounded-lg border-default bg-elevated/90 shadow-xl backdrop-blur max-[760px]:left-4 max-[760px]:translate-x-0"
+        :ui="{ body: 'flex flex-wrap items-center gap-1.5 px-2 py-1.5' }"
+        aria-label="Floating tools"
+      >
+        <UBadge color="neutral" variant="subtle" size="sm">工具箱</UBadge>
+        <USeparator orientation="vertical" class="mx-1 h-5" />
+        <UButton v-for="tool in tools" :key="tool" color="neutral" variant="ghost" square size="xs" type="button" :title="tool" class="text-[10px] font-extrabold">
           {{ tool }}
-        </button>
-        <b class="h-4 w-px bg-[#222228]" aria-hidden="true"></b>
-        <button
-          class="grid size-7 place-items-center rounded-full border border-[#222228] bg-[#141418] text-[#10b981] hover:bg-[#10231d]"
+        </UButton>
+        <USeparator orientation="vertical" class="mx-1 h-5" />
+        <UButton
+          color="primary"
+          variant="soft"
+          square
+          size="xs"
           type="button"
           title="摄影机控制"
           aria-label="打开摄影机控制"
           @click="openCameraPanel"
         >
           <Camera :size="14" />
-        </button>
-        <button class="grid size-7 place-items-center rounded-full border border-[#222228] bg-[#141418] text-[10px] font-extrabold text-[#10b981]" type="button" title="Export">
+        </UButton>
+        <UButton color="primary" variant="ghost" square size="xs" class="text-[10px] font-extrabold" type="button" title="Export">
           DL
-        </button>
-        <b class="h-4 w-px bg-[#222228]" aria-hidden="true"></b>
-        <div class="relative" @pointerdown.stop>
-          <button
-            class="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full border border-[#10b981] bg-[#10231d] px-3 text-[10px] font-extrabold text-[#10b981] outline-none hover:bg-[#123026] focus-visible:ring-2 focus-visible:ring-[#10b981]/35"
+        </UButton>
+        <USeparator orientation="vertical" class="mx-1 h-5" />
+        <UPopover
+          :open="isNodePaletteOpen"
+          :content="{ side: 'bottom', align: 'end', sideOffset: 12, collisionPadding: 12 }"
+          :ui="{ content: 'z-30 w-[300px] overflow-hidden rounded-xl border border-[#303034] bg-[#1d1d1f] px-[22px] py-2.5 shadow-[0_22px_60px_rgb(0_0_0/0.58)]' }"
+          @update:open="updateNodePaletteOpen"
+        >
+          <UButton
+            color="primary"
+            variant="soft"
+            size="xs"
             type="button"
             :aria-expanded="isNodePaletteOpen"
             aria-haspopup="menu"
             aria-label="打开添加节点菜单"
-            @click="toggleNodePalette"
+            @pointerdown.stop
           >
             <Plus :size="13" />
             添加节点
-          </button>
+          </UButton>
 
-          <Transition name="node-palette">
+          <template #content>
             <div
-              v-if="isNodePaletteOpen"
-              class="absolute right-0 top-10 z-30 w-[300px] overflow-hidden rounded-xl border border-[#303034] bg-[#1d1d1f] px-[22px] py-2.5 shadow-[0_22px_60px_rgb(0_0_0/0.58)] max-[760px]:left-0 max-[760px]:right-auto"
               role="menu"
               aria-label="添加节点"
+              @pointerdown.stop
               @contextmenu.prevent
             >
               <section v-for="section in nodePaletteSections" :key="section.label" class="py-2">
@@ -1769,9 +1935,9 @@ onUnmounted(() => {
                 </button>
               </section>
             </div>
-          </Transition>
-        </div>
-      </div>
+          </template>
+        </UPopover>
+      </UCard>
 
       <div class="relative mx-auto mt-4" :style="canvasFrameStyle">
         <div class="absolute left-0 top-0 will-change-transform" :style="canvasPanStyle">
@@ -1837,20 +2003,36 @@ onUnmounted(() => {
             </div>
 
             <label class="mx-4 mb-[7px] block text-[10px] font-extrabold leading-[14px] text-[#6b7280]" :for="`image-prompt-${node.id}`">Prompt 画面提示词</label>
-            <textarea :id="`image-prompt-${node.id}`" v-model="prompt" class="mx-4 mb-2.5 block h-[58px] w-[calc(100%_-_32px)] resize-none rounded border border-[#222228] bg-[#15151a] px-[9px] py-[7px] text-[11px] leading-[15px] text-[#d1d5db] outline-none focus:border-[#10b981] focus:ring-2 focus:ring-[#10b981]/20" rows="3"></textarea>
+            <UTextarea
+              :id="`image-prompt-${node.id}`"
+              v-model="prompt"
+              color="neutral"
+              variant="subtle"
+              size="sm"
+              :rows="3"
+              class="mx-4 mb-2.5 w-[calc(100%_-_32px)]"
+              :ui="{ base: 'min-h-[58px] resize-none text-[11px] leading-[15px]' }"
+            />
 
             <div class="mx-4 grid grid-cols-2 gap-3">
               <label class="grid min-w-0 gap-1.5">
                 <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">图片比例</span>
-                <input class="h-7 w-full rounded border border-[#222228] bg-[#15151a] px-[9px] text-[11px] text-[#d1d5db] outline-none focus:border-[#10b981] focus:ring-2 focus:ring-[#10b981]/20" value="3:4 / 中 / 1k" readonly />
+                <UInput color="neutral" variant="subtle" size="sm" model-value="3:4 / 中 / 1k" readonly :ui="{ base: 'text-[11px]' }" />
               </label>
               <label class="grid min-w-0 gap-1.5">
                 <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">模型选择</span>
-                <select v-model="node.modelId" class="h-7 w-full rounded border border-[#222228] bg-[#15151a] px-[9px] text-[11px] text-[#d1d5db] outline-none focus:border-[#10b981] focus:ring-2 focus:ring-[#10b981]/20" aria-label="图像模型选择">
-                  <option v-for="model in getModelOptionsForNode(node)" :key="model.id" :value="model.id">
-                    {{ model.label }}
-                  </option>
-                </select>
+                <USelect
+                  v-model="node.modelId"
+                  :items="getModelOptionsForNode(node)"
+                  label-key="label"
+                  value-key="id"
+                  color="neutral"
+                  variant="subtle"
+                  size="sm"
+                  class="w-full"
+                  aria-label="图像模型选择"
+                  :ui="{ base: 'text-[11px]' }"
+                />
               </label>
             </div>
 
@@ -1859,10 +2041,10 @@ onUnmounted(() => {
               <strong class="rounded-full bg-[#22302a] px-2 py-0.5 text-[10px] text-[#86efac]">{{ getNodeTokenEstimateLabel(node) }}</strong>
             </div>
 
-            <button class="mx-4 mt-7 inline-flex min-h-9 w-[calc(100%_-_32px)] items-center justify-center gap-2 rounded-lg border-0 bg-[#10b981] px-3 py-2 text-[12px] font-black text-[#070708] hover:brightness-110 disabled:cursor-wait disabled:opacity-75" type="button" :disabled="isNodeRunning(node)" @click="generateImage(node)">
+            <UButton color="primary" variant="solid" size="md" block class="mx-4 mt-7 w-[calc(100%_-_32px)]" type="button" :disabled="isNodeRunning(node)" @click="generateImage(node)">
               <WandSparkles :size="15" />
               {{ isNodeRunning(node) ? "生成中..." : hasSavedApiKey ? "生成 AI 图像" : "设置 API Key" }}
-            </button>
+            </UButton>
             <span class="socket left-[-7px] top-[119px]"></span>
             <span class="socket right-[-7px] top-[139px]"></span>
           </template>
@@ -1876,35 +2058,31 @@ onUnmounted(() => {
 
             <label class="mx-4 mb-4 grid gap-1.5">
               <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">视频模型</span>
-              <select v-model="node.modelId" class="h-7 w-full rounded border border-[#222228] bg-[#15151a] px-[9px] text-[11px] text-[#d1d5db] outline-none focus:border-[#10b981] focus:ring-2 focus:ring-[#10b981]/20" aria-label="视频模型选择">
-                <option v-for="model in getModelOptionsForNode(node)" :key="model.id" :value="model.id">
-                  {{ model.label }}
-                </option>
-              </select>
+              <USelect
+                v-model="node.modelId"
+                :items="getModelOptionsForNode(node)"
+                label-key="label"
+                value-key="id"
+                color="neutral"
+                variant="subtle"
+                size="sm"
+                class="w-full"
+                aria-label="视频模型选择"
+                :ui="{ base: 'text-[11px]' }"
+              />
             </label>
 
             <p class="mx-4 mb-2 block text-[10px] font-extrabold leading-[14px] text-[#6b7280]">运动幅度强度</p>
-            <div class="mx-4 mb-5 grid h-8 grid-cols-3 gap-0.5 rounded-[5px] border border-[#222228] bg-[#15151a] p-0.5" role="group" aria-label="Motion intensity">
-              <button
-                v-for="option in motionOptions"
-                :key="option.value"
-                type="button"
-                class="rounded text-[10px] font-extrabold"
-                :class="selectedMotion === option.value ? 'border border-[#115e59] bg-[#0f2f2e] text-[#14b8a6]' : 'border border-transparent text-[#6b7280]'"
-                @click="selectedMotion = option.value"
-              >
-                {{ option.label }}
-              </button>
-            </div>
+            <UTabs v-model="selectedMotion" :items="motionOptions" color="primary" variant="pill" size="xs" class="mx-4 mb-5 w-[calc(100%_-_32px)]" :ui="{ list: 'w-full bg-elevated', trigger: 'flex-1 text-[10px] font-extrabold' }" aria-label="Motion intensity" />
 
             <div class="mx-4 grid grid-cols-2 gap-3">
               <label class="grid min-w-0 gap-1.5">
                 <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">时长选择</span>
-                <input class="h-7 w-full rounded border border-[#222228] bg-[#15151a] px-[9px] text-[11px] text-[#d1d5db] outline-none focus:border-[#10b981] focus:ring-2 focus:ring-[#10b981]/20" value="5 秒" readonly />
+                <UInput color="neutral" variant="subtle" size="sm" model-value="5 秒" readonly :ui="{ base: 'text-[11px]' }" />
               </label>
               <label class="grid min-w-0 gap-1.5">
                 <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">分辨率</span>
-                <input class="h-7 w-full rounded border border-[#222228] bg-[#15151a] px-[9px] text-[11px] text-[#d1d5db] outline-none focus:border-[#10b981] focus:ring-2 focus:ring-[#10b981]/20" value="1080p FHD" readonly />
+                <UInput color="neutral" variant="subtle" size="sm" model-value="1080p FHD" readonly :ui="{ base: 'text-[11px]' }" />
               </label>
             </div>
 
@@ -1913,11 +2091,16 @@ onUnmounted(() => {
               <strong class="rounded-full bg-[#1a2b2b] px-2 py-0.5 text-[10px] text-[#5eead4]">{{ getNodeTokenEstimateLabel(node) }}</strong>
             </div>
 
-            <button class="mx-4 mt-7 inline-flex min-h-9 w-[calc(100%_-_32px)] items-center justify-center gap-2 rounded-lg border-0 bg-[#14b8a6] px-3 py-2 text-[12px] font-black text-[#070708] hover:brightness-110 disabled:cursor-wait disabled:opacity-75" type="button" :disabled="isNodeRunning(node)" @click="generateVideo(node)">
+            <UButton color="primary" variant="solid" size="md" block class="mx-4 mt-7 w-[calc(100%_-_32px)]" type="button" :disabled="isNodeRunning(node)" @click="generateVideo(node)">
               <Sparkles :size="15" />
               {{ isNodeRunning(node) ? "排队中..." : hasSavedApiKey ? "生成 AI 视频" : "设置 API Key" }}
-            </button>
+            </UButton>
+            <UButton color="secondary" variant="soft" size="md" block class="mx-4 mt-2 w-[calc(100%_-_32px)]" type="button" @click="openEditorFromNode(node)">
+              <Scissors :size="15" />
+              编辑视频
+            </UButton>
             <span class="socket left-[-7px] top-[119px]"></span>
+            <span class="socket right-[-7px] top-[139px]"></span>
           </template>
 
           <template v-else>
@@ -1958,6 +2141,14 @@ onUnmounted(() => {
         </div>
       </div>
     </section>
+
+    <LingluxEditor
+      v-else
+      :session="editSession"
+      @return-to-workflow="returnToWorkflow"
+      @exported="handleEditorExport"
+      @open-settings="openSettingsPanel"
+    />
 
     <div
       v-if="nodeContextMenu && nodeContextMenuTarget"
@@ -2090,84 +2281,67 @@ onUnmounted(() => {
       </aside>
     </Transition>
 
-    <div
-      v-if="isCameraPanelOpen"
-      class="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 px-3 py-5 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="camera-control-title"
-      @click.self="closeCameraPanel"
+    <UModal
+      :open="isCameraPanelOpen"
+      :close="false"
+      title="摄影机控制"
+      class="w-auto max-w-none bg-transparent p-0 ring-0 shadow-none"
+      :ui="{ overlay: 'bg-black/60 backdrop-blur-sm', content: 'max-h-none' }"
+      @update:open="updateCameraPanelOpen"
     >
+      <template #content>
       <section class="flex max-h-[calc(100dvh_-_40px)] w-[min(1024px,calc(100vw_-_24px))] flex-col overflow-hidden rounded-xl border border-[#2f2f36] bg-[#18181b] shadow-[0_24px_80px_rgb(0_0_0/0.58)]">
         <header class="flex min-h-[58px] flex-wrap items-center justify-between gap-3 px-4 py-3 max-[760px]:px-3">
-          <h2 id="camera-control-title" class="text-[16px] font-bold leading-5 text-white">摄影机控制</h2>
+          <h2 id="camera-control-title" aria-hidden="true" class="text-[16px] font-bold leading-5 text-highlighted">摄影机控制</h2>
           <label class="grid min-w-[76px] gap-1" for="camera-preset">
             <span class="sr-only">摄影机预设</span>
-            <select
+            <USelect
               id="camera-preset"
-              v-model="selectedCameraPreset"
-              class="h-8 rounded-lg border border-[#3a3a42] bg-[#1c1c20] px-2.5 text-[12px] font-bold text-[#f3f4f6] outline-none focus:border-[#10b981] focus:ring-2 focus:ring-[#10b981]/20"
-              @change="selectCameraPreset"
-            >
-              <option v-for="preset in cameraPresets" :key="preset.value" :value="preset.value">
-                {{ preset.label }}
-              </option>
-            </select>
+              :model-value="selectedCameraPreset"
+              :items="cameraPresets"
+              value-key="value"
+              label-key="label"
+              class="min-w-[104px]"
+              :ui="{ base: 'h-8 rounded-lg bg-[#1c1c20] text-[12px] font-bold text-[#f3f4f6] ring-[#3a3a42]', content: 'z-[80] bg-[#1c1c20] ring-[#3a3a42]' }"
+              @update:model-value="updateCameraPreset"
+            />
           </label>
         </header>
 
         <div class="grid gap-4 overflow-y-auto px-4 pb-4 max-[760px]:px-3">
-          <div class="flex flex-wrap gap-2" role="tablist" aria-label="摄影机类型">
-            <button
-              v-for="tab in cameraTypeTabs"
-              :key="tab.value"
-              class="inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-[13px] font-bold"
-              :class="selectedCameraCategory === tab.value ? 'border-[#4b5563] bg-[#24242a] text-white' : 'border-[#32323a] bg-[#1b1b1f] text-[#d1d5db] hover:border-[#4b5563]'"
-              type="button"
-              role="tab"
-              :aria-selected="selectedCameraCategory === tab.value"
-              @click="selectCameraCategory(tab.value)"
-            >
-              <component :is="tab.icon" :size="15" />
-              {{ tab.label }}
-            </button>
-          </div>
+          <UTabs
+            :model-value="selectedCameraCategory"
+            :items="cameraTypeTabs"
+            :content="false"
+            variant="pill"
+            aria-label="摄影机类型"
+            :ui="{ list: 'flex flex-wrap gap-2 bg-transparent p-0', indicator: 'bg-[#24242a] ring-1 ring-[#4b5563]', trigger: 'h-10 flex-none gap-2 rounded-lg px-3 text-[13px] font-bold text-[#d1d5db] data-[state=active]:text-white' }"
+            @update:model-value="updateCameraCategory"
+          >
+            <template #leading="{ item }">
+              <component :is="item.icon" :size="15" />
+            </template>
+          </UTabs>
 
           <div class="grid grid-cols-4 gap-2.5 max-[920px]:grid-cols-2 max-[560px]:grid-cols-1">
             <label class="grid gap-2 rounded-xl border border-[#303037] bg-[#202024] p-2.5" for="camera-body">
               <span class="text-[11px] font-bold text-[#85858e]">机身</span>
-              <select id="camera-body" v-model="selectedCameraBodyId" class="h-10 min-w-0 rounded-lg border border-[#35353d] bg-[#18181b] px-2.5 text-[13px] font-bold text-white outline-none focus:border-[#10b981] focus:ring-2 focus:ring-[#10b981]/20">
-                <option v-for="camera in activeCameraBodies" :key="camera.id" :value="camera.id">
-                  {{ camera.label }}
-                </option>
-              </select>
+              <USelect id="camera-body" v-model="selectedCameraBodyId" :items="activeCameraBodies" value-key="id" label-key="label" class="min-w-0" :ui="{ base: 'h-10 rounded-lg bg-[#18181b] text-[13px] font-bold text-highlighted ring-[#35353d]', content: 'z-[80] bg-[#18181b] ring-[#35353d]' }" />
             </label>
 
             <label class="grid gap-2 rounded-xl border border-[#303037] bg-[#202024] p-2.5" for="camera-lens">
               <span class="text-[11px] font-bold text-[#85858e]">镜头</span>
-              <select id="camera-lens" v-model="selectedLens" class="h-10 min-w-0 rounded-lg border border-[#35353d] bg-[#18181b] px-2.5 text-[13px] font-bold text-white outline-none focus:border-[#10b981] focus:ring-2 focus:ring-[#10b981]/20">
-                <option v-for="lens in lensOptions" :key="lens.value" :value="lens.value">
-                  {{ lens.label }}
-                </option>
-              </select>
+              <USelect id="camera-lens" v-model="selectedLens" :items="lensOptions" value-key="value" label-key="label" class="min-w-0" :ui="{ base: 'h-10 rounded-lg bg-[#18181b] text-[13px] font-bold text-highlighted ring-[#35353d]', content: 'z-[80] bg-[#18181b] ring-[#35353d]' }" />
             </label>
 
             <label class="grid gap-2 rounded-xl border border-[#303037] bg-[#202024] p-2.5" for="camera-focal-length">
               <span class="text-[11px] font-bold text-[#85858e]">焦段</span>
-              <select id="camera-focal-length" v-model="selectedFocalLength" class="h-10 min-w-0 rounded-lg border border-[#35353d] bg-[#18181b] px-2.5 text-[13px] font-bold text-white outline-none focus:border-[#10b981] focus:ring-2 focus:ring-[#10b981]/20">
-                <option v-for="focalLength in focalLengthOptions" :key="focalLength" :value="focalLength">
-                  {{ focalLength }}
-                </option>
-              </select>
+              <USelect id="camera-focal-length" v-model="selectedFocalLength" :items="focalLengthOptions" class="min-w-0" :ui="{ base: 'h-10 rounded-lg bg-[#18181b] text-[13px] font-bold text-highlighted ring-[#35353d]', content: 'z-[80] bg-[#18181b] ring-[#35353d]' }" />
             </label>
 
             <label class="grid gap-2 rounded-xl border border-[#303037] bg-[#202024] p-2.5" for="camera-aperture">
               <span class="text-[11px] font-bold text-[#85858e]">光圈</span>
-              <select id="camera-aperture" v-model="selectedAperture" class="h-10 min-w-0 rounded-lg border border-[#35353d] bg-[#18181b] px-2.5 text-[13px] font-bold text-white outline-none focus:border-[#10b981] focus:ring-2 focus:ring-[#10b981]/20">
-                <option v-for="aperture in apertureOptions" :key="aperture" :value="aperture">
-                  {{ aperture }}
-                </option>
-              </select>
+              <USelect id="camera-aperture" v-model="selectedAperture" :items="apertureOptions" class="min-w-0" :ui="{ base: 'h-10 rounded-lg bg-[#18181b] text-[13px] font-bold text-highlighted ring-[#35353d]', content: 'z-[80] bg-[#18181b] ring-[#35353d]' }" />
             </label>
           </div>
 
@@ -2188,7 +2362,7 @@ onUnmounted(() => {
             </dl>
 
             <div class="border-b border-[#303037] py-3">
-              <h3 class="mb-2 text-[13px] font-bold text-white">{{ activeCameraProfile.label }}</h3>
+              <h3 class="mb-2 text-[13px] font-bold text-highlighted">{{ activeCameraProfile.label }}</h3>
               <p class="text-[12px] leading-[1.7] text-[#cbd5e1]">{{ activeCameraProfile.description }}</p>
             </div>
 
@@ -2201,7 +2375,7 @@ onUnmounted(() => {
 
           <section class="grid gap-2">
             <div class="flex flex-wrap items-center gap-2 text-[12px]">
-              <h3 class="font-bold text-white">镜头特效</h3>
+              <h3 class="font-bold text-highlighted">镜头特效</h3>
               <span class="text-[#85858e]">{{ activeLensProfile.description }}</span>
             </div>
             <div class="flex flex-wrap gap-2" role="group" aria-label="镜头特效">
@@ -2209,7 +2383,7 @@ onUnmounted(() => {
                 v-for="effect in lensEffects"
                 :key="effect.value"
                 class="relative inline-flex h-8 items-center rounded-full border px-3 text-[12px] font-bold"
-                :class="selectedLensEffect === effect.value ? 'border-[#4b5563] bg-[#2a2a30] text-white' : 'border-[#36363e] bg-[#202024] text-[#d1d5db] hover:border-[#4b5563]'"
+                :class="selectedLensEffect === effect.value ? 'border-[#4b5563] bg-[#2a2a30] text-highlighted' : 'border-[#36363e] bg-[#202024] text-[#d1d5db] hover:border-[#4b5563]'"
                 type="button"
                 :title="effect.description"
                 @click="selectedLensEffect = effect.value"
@@ -2222,29 +2396,113 @@ onUnmounted(() => {
         </div>
 
         <footer class="flex justify-end gap-2 border-t border-[#2f2f36] px-4 py-4 max-[560px]:grid max-[560px]:grid-cols-2">
-          <button class="inline-flex h-9 min-w-[84px] items-center justify-center rounded-lg border border-[#4b4b55] bg-[#1f1f23] px-4 text-[12px] font-bold text-white hover:border-[#6b7280]" type="button" @click="closeCameraPanel">
+          <UButton class="h-9 min-w-[84px] justify-center bg-[#1f1f23] px-4 text-[12px] text-white ring-[#4b4b55] hover:bg-[#25252a] hover:ring-[#6b7280]" type="button" color="neutral" variant="outline" @click="closeCameraPanel">
             关闭
-          </button>
-          <button class="inline-flex h-9 min-w-[84px] items-center justify-center rounded-lg border border-[#5a5a64] bg-[#4a4a51] px-4 text-[12px] font-bold text-white hover:bg-[#5a5a62]" type="button" @click="applyCameraControl">
+          </UButton>
+          <UButton class="h-9 min-w-[84px] justify-center bg-[#4a4a51] px-4 text-[12px] text-white hover:bg-[#5a5a62]" type="button" color="neutral" @click="applyCameraControl">
             应用
-          </button>
+          </UButton>
         </footer>
       </section>
-    </div>
+      </template>
+    </UModal>
 
-    <div
-      v-if="isApiKeyPanelOpen"
-      class="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 px-4 py-6 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="api-key-title"
-      @click.self="closeApiKeyPanel"
+    <UModal
+      :open="isSettingsPanelOpen"
+      :close="false"
+      title="设置"
+      class="w-auto max-w-none bg-transparent p-0 ring-0 shadow-none"
+      :ui="{ overlay: 'bg-black/45 backdrop-blur-sm', content: 'max-h-none' }"
+      @update:open="updateSettingsPanelOpen"
     >
+      <template #content>
+        <section class="flex max-h-[calc(100dvh_-_48px)] w-[min(520px,calc(100vw_-_32px))] flex-col overflow-hidden rounded-xl border border-default bg-elevated text-default shadow-[0_24px_80px_rgb(0_0_0/0.28)]">
+          <header class="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-default px-5 py-4">
+            <div class="min-w-0">
+              <p class="mb-1 text-[10px] font-extrabold leading-3 text-dimmed">PREFERENCES</p>
+              <h2 aria-hidden="true" class="truncate text-[16px] font-bold leading-5 text-highlighted">设置</h2>
+            </div>
+            <UButton color="neutral" variant="soft" square size="sm" type="button" aria-label="关闭设置" @click="closeSettingsPanel">
+              <X :size="16" />
+            </UButton>
+          </header>
+
+          <div class="grid gap-6 overflow-y-auto px-5 py-5">
+            <section class="grid gap-3" aria-labelledby="appearance-title">
+              <div>
+                <h3 id="appearance-title" class="text-[12px] font-black text-highlighted">外观主题</h3>
+                <p class="mt-1 text-[10px] font-semibold text-muted">选择适合当前创作环境的界面明暗模式</p>
+              </div>
+              <div class="grid grid-cols-2 gap-3" role="radiogroup" aria-label="外观主题">
+                <button
+                  class="group grid min-h-[104px] gap-3 rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
+                  :class="activeTheme === 'dark' ? 'border-primary bg-primary/10 shadow-[0_0_0_1px_rgb(16_185_129/0.12)]' : 'border-default bg-muted hover:border-accented hover:bg-accented'"
+                  type="button"
+                  role="radio"
+                  :aria-checked="activeTheme === 'dark'"
+                  @click="selectTheme('dark')"
+                >
+                  <span class="grid size-9 place-items-center rounded-lg bg-[#111827] text-[#dbeafe] ring-1 ring-[#334155]">
+                    <Moon :size="17" />
+                  </span>
+                  <span>
+                    <strong class="block text-[12px] font-black text-highlighted">暗色</strong>
+                    <span class="mt-1 block text-[9px] font-semibold text-muted">适合暗光剪辑环境</span>
+                  </span>
+                </button>
+                <button
+                  class="group grid min-h-[104px] gap-3 rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
+                  :class="activeTheme === 'light' ? 'border-primary bg-primary/10 shadow-[0_0_0_1px_rgb(16_185_129/0.12)]' : 'border-default bg-muted hover:border-accented hover:bg-accented'"
+                  type="button"
+                  role="radio"
+                  :aria-checked="activeTheme === 'light'"
+                  @click="selectTheme('light')"
+                >
+                  <span class="grid size-9 place-items-center rounded-lg bg-[#fff7d6] text-[#b45309] ring-1 ring-[#f5d98b]">
+                    <Sun :size="17" />
+                  </span>
+                  <span>
+                    <strong class="block text-[12px] font-black text-highlighted">亮色</strong>
+                    <span class="mt-1 block text-[9px] font-semibold text-muted">适合日间明亮环境</span>
+                  </span>
+                </button>
+              </div>
+            </section>
+
+            <USeparator />
+
+            <section class="flex items-center gap-3 rounded-xl border border-default bg-muted p-4">
+              <span class="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
+                <KeyRound :size="17" />
+              </span>
+              <span class="min-w-0 flex-1">
+                <strong class="block text-[12px] font-black text-highlighted">模型服务</strong>
+                <span class="mt-1 block truncate text-[9px] font-semibold text-muted">{{ hasSavedApiKey ? `${activeProviderLabel} · ${savedApiKeyHint}` : '配置 API Key 与服务地址' }}</span>
+              </span>
+              <UButton color="neutral" variant="outline" size="sm" type="button" @click="openApiKeyFromSettings">
+                管理
+              </UButton>
+            </section>
+          </div>
+        </section>
+      </template>
+    </UModal>
+
+    <UModal
+      :open="isApiKeyPanelOpen"
+      :close="false"
+      :dismissible="!isSavingApiKey && !isClearingApiKey"
+      title="API Key 设置"
+      class="w-auto max-w-none bg-transparent p-0 ring-0 shadow-none"
+      :ui="{ overlay: 'bg-black/60 backdrop-blur-sm', content: 'max-h-none' }"
+      @update:open="updateApiKeyPanelOpen"
+    >
+      <template #content>
       <form class="flex max-h-[calc(100dvh_-_48px)] w-[min(520px,calc(100vw_-_32px))] flex-col overflow-hidden rounded-xl border border-[#222228] bg-[#101014] shadow-[0_24px_80px_rgb(0_0_0/0.52)]" @submit.prevent="saveApiKeySettings">
         <header class="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-[#222228] px-5 py-4">
           <div class="min-w-0">
             <p class="mb-1 text-[10px] font-extrabold leading-3 text-[#4b5563]">SETTINGS</p>
-            <h2 id="api-key-title" class="truncate text-[16px] font-bold leading-5 text-white">API Key 设置</h2>
+            <h2 id="api-key-title" aria-hidden="true" class="truncate text-[16px] font-bold leading-5 text-highlighted">API Key 设置</h2>
           </div>
           <button class="grid size-8 place-items-center rounded-lg border border-[#222228] bg-[#15151a] text-[#9ca3af] hover:text-white" type="button" title="关闭" @click="closeApiKeyPanel">
             <X :size="16" />
@@ -2254,26 +2512,24 @@ onUnmounted(() => {
         <section class="grid gap-5 overflow-y-auto px-5 py-5">
           <div class="grid gap-2">
             <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">服务商</span>
-            <div class="grid h-9 grid-cols-3 gap-0.5 rounded-[5px] border border-[#222228] bg-[#15151a] p-0.5" role="group" aria-label="API provider">
-              <button
-                v-for="provider in apiProviderOptions"
-                :key="provider.value"
-                type="button"
-                class="rounded text-[10px] font-extrabold"
-                :class="apiKeyDraft.provider === provider.value ? 'border border-[#115e59] bg-[#0f2f2e] text-[#14b8a6]' : 'border border-transparent text-[#6b7280]'"
-                @click="selectApiProvider(provider.value)"
-              >
-                {{ provider.label }}
-              </button>
-            </div>
+            <UTabs
+              :model-value="apiKeyDraft.provider"
+              :items="apiProviderOptions"
+              :content="false"
+              variant="pill"
+              aria-label="API provider"
+              :ui="{ list: 'grid h-9 grid-cols-3 gap-0.5 rounded-[5px] border border-[#222228] bg-[#15151a] p-0.5', indicator: 'rounded bg-[#0f2f2e] ring-1 ring-[#115e59]', trigger: 'justify-center rounded text-[10px] font-extrabold text-[#6b7280] data-[state=active]:text-[#14b8a6]' }"
+              @update:model-value="updateApiProvider"
+            />
           </div>
 
           <label class="grid gap-2" for="api-base-url">
             <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">Base URL</span>
-            <input
+            <UInput
               id="api-base-url"
               v-model="apiKeyDraft.baseUrl"
-              class="h-10 w-full rounded border border-[#222228] bg-[#15151a] px-3 text-[12px] text-[#d1d5db] outline-none focus:border-[#10b981] focus:ring-2 focus:ring-[#10b981]/20"
+              class="w-full"
+              :ui="{ base: 'h-10 rounded bg-[#15151a] px-3 text-[12px] text-[#d1d5db] ring-[#222228]' }"
               inputmode="url"
               spellcheck="false"
             />
@@ -2281,25 +2537,29 @@ onUnmounted(() => {
 
           <label class="grid gap-2" for="api-key-input">
             <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">API Key</span>
-            <span class="relative block">
-              <input
-                id="api-key-input"
-                v-model="apiKeyDraft.apiKey"
-                class="h-10 w-full rounded border border-[#222228] bg-[#15151a] px-3 pr-11 text-[12px] text-[#d1d5db] outline-none focus:border-[#10b981] focus:ring-2 focus:ring-[#10b981]/20"
-                :type="showApiKey ? 'text' : 'password'"
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <button
-                class="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-[#6b7280] hover:bg-[#1d1d22] hover:text-[#d1d5db]"
+            <UInput
+              id="api-key-input"
+              v-model="apiKeyDraft.apiKey"
+              class="w-full"
+              :ui="{ base: 'h-10 rounded bg-[#15151a] px-3 pr-11 text-[12px] text-[#d1d5db] ring-[#222228]', trailing: 'pe-1.5' }"
+              :type="showApiKey ? 'text' : 'password'"
+              autocomplete="off"
+              spellcheck="false"
+            >
+              <template #trailing>
+                <UButton
+                class="grid size-7 place-items-center rounded-md p-0 text-[#6b7280] hover:bg-[#1d1d22] hover:text-[#d1d5db]"
                 type="button"
+                color="neutral"
+                variant="ghost"
                 :title="showApiKey ? '隐藏 API Key' : '显示 API Key'"
                 @click="showApiKey = !showApiKey"
               >
                 <EyeOff v-if="showApiKey" :size="15" />
                 <Eye v-else :size="15" />
-              </button>
-            </span>
+                </UButton>
+              </template>
+            </UInput>
           </label>
 
           <div class="flex min-h-9 items-center gap-2 rounded border border-[#222228] bg-[#0d0d10] px-3 text-[11px] text-[#9ca3af]">
@@ -2309,21 +2569,25 @@ onUnmounted(() => {
         </section>
 
         <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-[#222228] px-5 py-4">
-          <button
-            class="inline-flex h-9 min-w-[92px] items-center justify-center gap-2 rounded-lg border border-[#2f2f36] bg-[#15151a] px-3 text-[12px] font-bold text-[#9ca3af] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+          <UButton
+            class="h-9 min-w-[92px] justify-center bg-[#15151a] px-3 text-[12px] text-[#9ca3af] ring-[#2f2f36] hover:text-white"
             type="button"
+            color="neutral"
+            variant="outline"
             :disabled="isClearingApiKey || !hasSavedApiKey"
             @click="clearApiKeySettings"
           >
             <Trash2 :size="14" />
             {{ isClearingApiKey ? "清除中..." : "清除" }}
-          </button>
-          <button class="inline-flex h-9 min-w-[116px] items-center justify-center gap-2 rounded-lg border-0 bg-[#10b981] px-4 text-[12px] font-black text-[#070708] hover:brightness-110 disabled:cursor-wait disabled:opacity-75" type="submit" :disabled="isSavingApiKey">
+          </UButton>
+          <UButton class="h-9 min-w-[116px] justify-center bg-[#10b981] px-4 text-[12px] font-black text-[#070708] hover:bg-[#18c991]" type="submit" :disabled="isSavingApiKey">
             <Save :size="14" />
             {{ isSavingApiKey ? "保存中..." : "保存配置" }}
-          </button>
+          </UButton>
         </footer>
       </form>
-    </div>
+      </template>
+    </UModal>
   </main>
+  </UApp>
 </template>

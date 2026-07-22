@@ -1,9 +1,43 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
-import tailwindcss from "@tailwindcss/vite";
+import ui from "@nuxt/ui/vite";
 
 export default defineConfig({
-  plugins: [vue(), tailwindcss()],
+  plugins: [
+    vue(),
+    ui({
+      colorMode: false,
+      router: false,
+      theme: {
+        defaultVariants: {
+          color: "primary",
+          size: "sm",
+        },
+      },
+      ui: {
+        colors: {
+          primary: "emerald",
+          secondary: "blue",
+          neutral: "zinc",
+        },
+        button: {
+          slots: {
+            base: "font-bold",
+          },
+        },
+        input: {
+          slots: {
+            base: "font-semibold",
+          },
+        },
+        select: {
+          slots: {
+            base: "font-semibold",
+          },
+        },
+      },
+    }),
+  ],
   clearScreen: false,
   server: {
     strictPort: true,
