@@ -12,12 +12,16 @@ type TaskListener = Arc<dyn Fn(TaskEvent) + Send + Sync + 'static>;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum TaskKind {
+    Agent,
     Import,
+    FrameSequence,
     Export,
     Proxy,
     Thumbnail,
     Waveform,
     ProjectSave,
+    TtsSetup,
+    SpeechSynthesis,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -340,13 +344,37 @@ impl TaskManager {
             .map(TaskHandle::request_cancel)
             .unwrap_or(false)
     }
+
+    pub fn mark_cancelled(&self, task_id: &str) -> bool {
+        let handle = self
+            .inner
+            .tasks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(task_id)
+            .cloned();
+
+        if let Some(handle) = handle {
+            handle.mark_cancelled();
+            true
+        } else {
+            false
+        }
+    }
 }
 
 fn persist_task_snapshot(journal_dir: &Path, snapshot: &TaskSnapshot) -> Result<(), String> {
     fs::create_dir_all(journal_dir).map_err(|error| error.to_string())?;
     let path = journal_dir.join(format!("{}.json", snapshot.id));
     let next = journal_dir.join(format!("{}.json.next", snapshot.id));
-    let bytes = serde_json::to_vec_pretty(snapshot).map_err(|error| error.to_string())?;
+    let mut persisted_snapshot = snapshot.clone();
+
+    if persisted_snapshot.kind == TaskKind::Agent {
+        persisted_snapshot.result = None;
+    }
+
+    let bytes =
+        serde_json::to_vec_pretty(&persisted_snapshot).map_err(|error| error.to_string())?;
     fs::write(&next, bytes).map_err(|error| error.to_string())?;
 
     if path.exists() {
@@ -397,6 +425,27 @@ mod tests {
         let snapshot = restored.get(&task_id).expect("restored task");
         assert_eq!(snapshot.state, TaskState::Interrupted);
         assert!(snapshot.error.is_some());
+        let _ = fs::remove_dir_all(journal_dir);
+    }
+
+    #[test]
+    fn agent_results_are_observable_but_not_written_to_task_journals() {
+        let journal_dir =
+            std::env::temp_dir().join(format!("linglux-agent-task-test-{}", unix_millis()));
+        let manager = TaskManager::with_journal(&journal_dir).expect("create journal");
+        let task = manager.create(TaskKind::Agent, Some("project-1".into()), "agent", None);
+        task.start("planning");
+        task.succeed(serde_json::json!({ "conversation": "private chat" }));
+
+        assert_eq!(
+            task.snapshot().result,
+            Some(serde_json::json!({ "conversation": "private chat" }))
+        );
+
+        let journal_path = journal_dir.join(format!("{}.json", task.snapshot().id));
+        let journal = fs::read_to_string(journal_path).expect("read task journal");
+        assert!(!journal.contains("private chat"));
+        assert!(!journal.contains("\"result\""));
         let _ = fs::remove_dir_all(journal_dir);
     }
 }

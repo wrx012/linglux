@@ -91,6 +91,50 @@ impl ProjectStore {
 
         read_document(&manifest_path).or_else(|| read_document(&backup_path))
     }
+
+    pub fn save_agent_conversation(
+        &self,
+        project_id: &str,
+        conversation: &Value,
+    ) -> Result<(), String> {
+        let project_dir = self.project_dir(project_id);
+        fs::create_dir_all(&project_dir).map_err(|error| error.to_string())?;
+        let path = project_dir.join("agent-conversation.json");
+        let backup_path = project_dir.join("agent-conversation.json.bak");
+        let next_path = project_dir.join("agent-conversation.json.next");
+        let bytes = serde_json::to_vec_pretty(conversation).map_err(|error| error.to_string())?;
+
+        write_synced(&next_path, &bytes)?;
+        replace_recoverably(&next_path, &path, &backup_path)
+    }
+
+    pub fn load_agent_conversation(&self, project_id: &str) -> Option<Value> {
+        let project_dir = self.project_dir(project_id);
+        let path = project_dir.join("agent-conversation.json");
+        let backup_path = project_dir.join("agent-conversation.json.bak");
+
+        read_json_value(&path).or_else(|| read_json_value(&backup_path))
+    }
+
+    pub fn clear_agent_conversation(&self, project_id: &str) -> Result<(), String> {
+        let project_dir = self.project_dir(project_id);
+
+        for file_name in [
+            "agent-conversation.json",
+            "agent-conversation.json.bak",
+            "agent-conversation.json.next",
+        ] {
+            let path = project_dir.join(file_name);
+
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+
+        Ok(())
+    }
 }
 
 fn read_document(path: &Path) -> Option<ProjectDocument> {
@@ -102,6 +146,11 @@ fn read_document(path: &Path) -> Option<ProjectDocument> {
     }
 
     Some(document)
+}
+
+fn read_json_value(path: &Path) -> Option<Value> {
+    let bytes = fs::read(path).ok()?;
+    serde_json::from_slice(&bytes).ok()
 }
 
 fn write_synced(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -156,5 +205,46 @@ mod tests {
             "Two"
         );
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn saves_recovers_and_clears_agent_conversation() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "linglux-project-store-agent-{}",
+            crate::unix_millis()
+        ));
+        let store = ProjectStore::new(temp_dir.clone()).expect("store");
+        let first = serde_json::json!({ "projectId": "project:agent", "messages": [{ "content": "first" }] });
+        let second = serde_json::json!({ "projectId": "project:agent", "messages": [{ "content": "second" }] });
+
+        store
+            .save_agent_conversation("project:agent", &first)
+            .expect("save first conversation");
+        store
+            .save_agent_conversation("project:agent", &second)
+            .expect("save second conversation");
+        assert_eq!(
+            store
+                .load_agent_conversation("project:agent")
+                .expect("load conversation")["messages"][0]["content"],
+            "second"
+        );
+
+        let active = store
+            .project_dir("project:agent")
+            .join("agent-conversation.json");
+        fs::write(&active, b"invalid").expect("corrupt active conversation");
+        assert_eq!(
+            store
+                .load_agent_conversation("project:agent")
+                .expect("recover backup")["messages"][0]["content"],
+            "first"
+        );
+
+        store
+            .clear_agent_conversation("project:agent")
+            .expect("clear conversation");
+        assert!(store.load_agent_conversation("project:agent").is_none());
+        let _ = fs::remove_dir_all(temp_dir);
     }
 }

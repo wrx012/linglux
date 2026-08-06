@@ -1,7 +1,15 @@
+mod agent;
+
+use agent::{
+    cancel_editor_agent_turn, clear_agent_conversation, clear_agent_provider_settings,
+    load_agent_conversation, load_agent_provider_settings, save_agent_provider_settings,
+    start_editor_agent_turn, update_agent_plan_state, AgentRuntime,
+};
 use linglux_media_core::{
     discover_ffmpeg_binary, generate_media_derivatives, import_media_paths,
-    run_ffmpeg_process as run_ffmpeg, MediaCore, MediaKind, TaskEvent, TaskHandle, TaskKind,
-    TaskSnapshot, TaskState,
+    run_ffmpeg_process as run_ffmpeg, storyboard_to_video, MediaCore, MediaKind,
+    SpeechSynthesisRequest, StoryboardToVideoRequest, TaskEvent, TaskHandle, TaskKind,
+    TaskSnapshot, TaskState, TtsStatus,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -11,14 +19,6 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ApiKeySettings {
-    provider: String,
-    base_url: String,
-    api_key: String,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -226,45 +226,6 @@ struct EditorExportResult {
 struct RenderClip<'a> {
     clip: &'a TimelineClip,
     asset: &'a MediaAsset,
-}
-
-impl Default for ApiKeySettings {
-    fn default() -> Self {
-        Self {
-            provider: "openai".to_string(),
-            base_url: "https://api.openai.com/v1".to_string(),
-            api_key: String::new(),
-        }
-    }
-}
-
-impl ApiKeySettings {
-    fn normalized(mut self) -> Self {
-        let fallback = Self::default();
-
-        self.provider = self.provider.trim().to_string();
-        self.base_url = self.base_url.trim().trim_end_matches('/').to_string();
-        self.api_key = self.api_key.trim().to_string();
-
-        if self.provider.is_empty() {
-            self.provider = fallback.provider;
-        }
-
-        if self.base_url.is_empty() {
-            self.base_url = fallback.base_url;
-        }
-
-        self
-    }
-}
-
-fn api_key_settings_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let config_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| error.to_string())?;
-    std::fs::create_dir_all(&config_dir).map_err(|error| error.to_string())?;
-    Ok(config_dir.join("api-key-settings.json"))
 }
 
 fn now_stamp() -> String {
@@ -1463,52 +1424,6 @@ fn create_video_plan(prompt: String) -> String {
 }
 
 #[tauri::command]
-fn load_api_key_settings(app: AppHandle) -> Result<ApiKeySettings, String> {
-    let settings_path = api_key_settings_path(&app)?;
-
-    if !settings_path.exists() {
-        return Ok(ApiKeySettings::default());
-    }
-
-    let settings = std::fs::read_to_string(settings_path).map_err(|error| error.to_string())?;
-    let settings = serde_json::from_str::<ApiKeySettings>(&settings)
-        .map_err(|error| error.to_string())?
-        .normalized();
-
-    Ok(settings)
-}
-
-#[tauri::command]
-fn save_api_key_settings(
-    app: AppHandle,
-    settings: ApiKeySettings,
-) -> Result<ApiKeySettings, String> {
-    let settings = settings.normalized();
-
-    if settings.api_key.is_empty() {
-        return Err("API Key 不能为空".to_string());
-    }
-
-    let settings_path = api_key_settings_path(&app)?;
-    let settings_json =
-        serde_json::to_string_pretty(&settings).map_err(|error| error.to_string())?;
-    std::fs::write(settings_path, settings_json).map_err(|error| error.to_string())?;
-
-    Ok(settings)
-}
-
-#[tauri::command]
-fn clear_api_key_settings(app: AppHandle) -> Result<(), String> {
-    let settings_path = api_key_settings_path(&app)?;
-
-    match std::fs::remove_file(settings_path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.to_string()),
-    }
-}
-
-#[tauri::command]
 fn create_edit_session(core: State<'_, MediaCore>, seed: EditorSessionSeed) -> EditSession {
     let now = now_stamp();
     let project_id = seed
@@ -1604,6 +1519,41 @@ fn start_import_media(
             &worker_task,
         ) {
             Ok(imported) => match serde_json::to_value(imported) {
+                Ok(result) => worker_task.succeed(result),
+                Err(error) => worker_task.fail(error.to_string()),
+            },
+            Err(_error) if worker_task.snapshot().state == TaskState::Cancelled => {}
+            Err(error) => worker_task.fail(error),
+        }
+    })?;
+
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn start_storyboard_to_video(
+    core: State<'_, MediaCore>,
+    request: StoryboardToVideoRequest,
+    on_event: Channel<TaskEvent>,
+) -> Result<TaskSnapshot, String> {
+    let core = core.inner().clone();
+    let listener = Arc::new(move |event: TaskEvent| {
+        let _ = on_event.send(event);
+    });
+    let task = core.tasks().create(
+        TaskKind::FrameSequence,
+        Some(request.project_id.clone()),
+        format!("生成分镜视频 {}", request.output_name),
+        Some(listener),
+    );
+    let snapshot = task.snapshot();
+    let worker_task = task.clone();
+    let job_core = core.clone();
+
+    core.submit(TaskKind::FrameSequence, move || {
+        worker_task.start("准备分镜图");
+        match storyboard_to_video(job_core.projects(), &request, &worker_task) {
+            Ok(result) => match serde_json::to_value(result) {
                 Ok(result) => worker_task.succeed(result),
                 Err(error) => worker_task.fail(error.to_string()),
             },
@@ -1732,6 +1682,86 @@ fn list_media_tasks(core: State<'_, MediaCore>, project_id: Option<String>) -> V
 }
 
 #[tauri::command]
+fn get_tts_status(core: State<'_, MediaCore>) -> TtsStatus {
+    let mut status = core.tts().status();
+    let installing = core
+        .tasks()
+        .list(None)
+        .iter()
+        .any(|task| task.kind == TaskKind::TtsSetup && !task.state.is_terminal());
+    if installing {
+        status.state = "installing".to_string();
+    }
+    status
+}
+
+#[tauri::command]
+fn start_tts_setup(
+    core: State<'_, MediaCore>,
+    on_event: Channel<TaskEvent>,
+) -> Result<TaskSnapshot, String> {
+    let core = core.inner().clone();
+    let listener = Arc::new(move |event: TaskEvent| {
+        let _ = on_event.send(event);
+    });
+    let task = core
+        .tasks()
+        .create(TaskKind::TtsSetup, None, "安装本地语音模型", Some(listener));
+    let snapshot = task.snapshot();
+    let worker_task = task.clone();
+    let job_core = core.clone();
+    core.submit(TaskKind::TtsSetup, move || {
+        worker_task.start("准备本地语音环境");
+        match job_core.tts().setup(&worker_task) {
+            Ok(status) => match serde_json::to_value(status) {
+                Ok(result) => worker_task.succeed(result),
+                Err(error) => worker_task.fail(error.to_string()),
+            },
+            Err(_error) if worker_task.snapshot().state == TaskState::Cancelled => {}
+            Err(error) => worker_task.fail(error),
+        }
+    })?;
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn start_speech_synthesis(
+    core: State<'_, MediaCore>,
+    request: SpeechSynthesisRequest,
+    on_event: Channel<TaskEvent>,
+) -> Result<TaskSnapshot, String> {
+    let core = core.inner().clone();
+    let project_id = request.project_id.clone();
+    let listener = Arc::new(move |event: TaskEvent| {
+        let _ = on_event.send(event);
+    });
+    let task = core.tasks().create(
+        TaskKind::SpeechSynthesis,
+        Some(project_id),
+        "生成 AI 配音",
+        Some(listener),
+    );
+    let snapshot = task.snapshot();
+    let worker_task = task.clone();
+    let job_core = core.clone();
+    core.submit(TaskKind::SpeechSynthesis, move || {
+        worker_task.start("准备生成配音");
+        match job_core
+            .tts()
+            .synthesize(job_core.projects(), &request, &worker_task)
+        {
+            Ok(result) => match serde_json::to_value(result) {
+                Ok(result) => worker_task.succeed(result),
+                Err(error) => worker_task.fail(error.to_string()),
+            },
+            Err(_error) if worker_task.snapshot().state == TaskState::Cancelled => {}
+            Err(error) => worker_task.fail(error),
+        }
+    })?;
+    Ok(snapshot)
+}
+
+#[tauri::command]
 fn reveal_export_file(app: AppHandle, output_path: String) -> Result<(), String> {
     let path = canonical_export_file_path(&app, &output_path)?;
 
@@ -1750,22 +1780,32 @@ pub fn run() {
                 .join("media-core");
             let core = MediaCore::new(core_root).map_err(std::io::Error::other)?;
             app.manage(core);
+            app.manage(AgentRuntime::new().map_err(std::io::Error::other)?);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             create_video_plan,
-            load_api_key_settings,
-            save_api_key_settings,
-            clear_api_key_settings,
+            load_agent_provider_settings,
+            save_agent_provider_settings,
+            clear_agent_provider_settings,
+            load_agent_conversation,
+            clear_agent_conversation,
+            update_agent_plan_state,
+            start_editor_agent_turn,
+            cancel_editor_agent_turn,
             create_edit_session,
             load_edit_project,
             save_edit_project,
             start_import_media,
+            start_storyboard_to_video,
             start_media_derivatives,
             start_export,
             cancel_media_task,
             get_media_task,
             list_media_tasks,
+            get_tts_status,
+            start_tts_setup,
+            start_speech_synthesis,
             reveal_export_file
         ])
         .run(tauri::generate_context!())

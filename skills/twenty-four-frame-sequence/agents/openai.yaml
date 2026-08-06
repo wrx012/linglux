@@ -1,0 +1,4 @@
+interface:
+  display_name: "Twenty-Four Frame Sequence"
+  short_description: "Create coherent 24-frame image sequence sheets"
+  default_prompt: "Use $twenty-four-frame-sequence to generate a coherent 24-frame image sequence from my theme or reference image."

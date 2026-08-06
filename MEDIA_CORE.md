@@ -30,15 +30,27 @@ media-core/
   projects/<project-id>.linglux/
     manifest.json
     manifest.json.bak
+    agent-conversation.json
+    agent-conversation.json.bak
     media/
     proxies/
   cache/
     thumbnails/
     waveforms/
   tasks/
+  tts/
+    runtime/
+    cosyvoice-source/
+    cosyvoice-300m-instruct/
+    downloads/
+    tmp/
 ```
 
 `manifest.json.next` is synchronized before replacing the active manifest. The previous valid manifest is retained as a backup. Each save increments a revision. Reopening the editor from the same workflow node restores that node's saved project.
+
+Agent conversation history is a separate bounded sidecar in the project package. It uses the same next-file and backup replacement discipline, but it is intentionally excluded from `EditorProject` and export manifests. The file stores visible user/assistant messages, visible structured plan previews, and plan states only; provider reasoning, API keys, local paths, and raw provider responses are not persisted.
+
+The TTS directory is global to the local Linglux installation rather than a project. Its install manifest pins the CosyVoice source and model revisions. Partial runtime downloads are checksum-verified before publication; incomplete downloads and synthesis output stay out of project packages. Completed WAV output is imported through the same managed-media path as user audio.
 
 Derivative cache keys use the imported media fingerprint and derivative parameters. The shared cache is pruned to a 2 GiB budget after derivative jobs.
 
@@ -52,10 +64,15 @@ queued → running → succeeded
                  ↘ cancelling → cancelled
 ```
 
-Unfinished journal entries are restored as `interrupted` after a process restart. Export uses one worker; import and derivative work share two media workers. Progress, status text, errors, results, and cancellation travel through Tauri channels rather than UI polling.
+Unfinished journal entries are restored as `interrupted` after a process restart. Export uses one worker; import and derivative work share two media workers. Progress, status text, errors, results, and cancellation travel through Tauri channels rather than UI polling. Agent results remain observable through the live channel but are removed from task-journal snapshots so conversations are not duplicated under `tasks/`.
 
 Frontend-callable commands:
 
+- `start_editor_agent_turn`
+- `cancel_editor_agent_turn`
+- `load_agent_conversation`
+- `update_agent_plan_state`
+- `clear_agent_conversation`
 - `start_import_media`
 - `start_media_derivatives`
 - `start_export`
@@ -64,6 +81,11 @@ Frontend-callable commands:
 - `list_media_tasks`
 - `save_edit_project`
 - `load_edit_project`
+- `get_tts_status`
+- `start_tts_setup`
+- `start_speech_synthesis`
+
+TTS setup and speech synthesis share one dedicated worker. They are cancellable through `cancel_media_task`; only successfully imported WAV files become project assets.
 
 ## Editor performance changes
 
@@ -78,10 +100,10 @@ Frontend-callable commands:
 Use the following gates when changing this boundary:
 
 ```sh
-npm run build
+pnpm build
 cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml -p linglux-media-core
-npm run tauri:build
+pnpm tauri:build
 ```
 
 Runtime performance should also be checked with multi-gigabyte imports, at least 10,000 timeline clips, cancellation during proxy generation and export, and restart recovery while a task is running.

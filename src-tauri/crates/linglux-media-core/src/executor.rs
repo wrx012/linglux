@@ -9,16 +9,19 @@ type Job = Box<dyn FnOnce() + Send + 'static>;
 pub struct TaskExecutor {
     export_sender: Sender<Job>,
     media_sender: Sender<Job>,
+    speech_sender: Sender<Job>,
 }
 
 impl TaskExecutor {
     pub fn new(export_workers: usize, media_workers: usize) -> Self {
         let export_sender = spawn_workers("linglux-export", export_workers.max(1));
         let media_sender = spawn_workers("linglux-media", media_workers.max(1));
+        let speech_sender = spawn_workers("linglux-speech", 1);
 
         Self {
             export_sender,
             media_sender,
+            speech_sender,
         }
     }
 
@@ -27,10 +30,10 @@ impl TaskExecutor {
         kind: TaskKind,
         job: impl FnOnce() + Send + 'static,
     ) -> Result<(), String> {
-        let sender = if kind == TaskKind::Export {
-            &self.export_sender
-        } else {
-            &self.media_sender
+        let sender = match kind {
+            TaskKind::Export => &self.export_sender,
+            TaskKind::TtsSetup | TaskKind::SpeechSynthesis => &self.speech_sender,
+            _ => &self.media_sender,
         };
 
         sender

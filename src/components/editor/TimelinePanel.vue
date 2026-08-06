@@ -56,6 +56,14 @@ interface PlayheadDragState {
   lastSeconds: number;
 }
 
+interface ClipTrimDragState {
+  clipId: string;
+  edge: "start" | "end";
+  pointerId: number;
+  element: HTMLElement;
+  startClientX: number;
+}
+
 interface RulerTick {
   seconds: number;
   isMajor: boolean;
@@ -70,6 +78,7 @@ interface TimelineDropPreview {
   clipType: TimelineTrackType;
   isCompatible: boolean;
   isSnapped: boolean;
+  snapGuideTime?: number;
   label: string;
 }
 
@@ -92,6 +101,7 @@ const props = defineProps<{
   assetDragCompatibleTrackIds: string[];
   draggingClipId?: string;
   dragPreview?: TimelineDropPreview;
+  trimSnapGuideTime?: number;
   scrollLeftShortcut: TimelineShortcutBinding | null;
   scrollRightShortcut: TimelineShortcutBinding | null;
 }>();
@@ -103,6 +113,9 @@ const emit = defineEmits<{
   endPlayheadScrub: [seconds: number];
   updatePlayhead: [seconds: number];
   trimClip: [clipId: string, edge: "start" | "end"];
+  beginClipTrim: [clipId: string, edge: "start" | "end"];
+  updateClipTrim: [clipId: string, edge: "start" | "end", deltaSeconds: number];
+  endClipTrim: [clipId: string];
   splitSelected: [];
   deleteSelected: [];
   deleteClip: [clipId: string];
@@ -111,6 +124,7 @@ const emit = defineEmits<{
   zoomIn: [];
   zoomOut: [];
   toggleAudioBeatMarkers: [];
+  alignSelectedVideoToBeatMarkers: [];
   toggleMainTrackMagnet: [];
   dropAsset: [assetId: string, trackId: string, seconds: number];
   updateTrack: [trackId: string, patch: Partial<Pick<TimelineTrack, "muted" | "visible" | "mediaEnabled">>];
@@ -121,7 +135,9 @@ const timelineScroller = ref<HTMLElement | null>(null);
 const timelineViewportWidth = ref(0);
 const timelineScrollLeft = ref(0);
 const playheadDragState = ref<PlayheadDragState | null>(null);
+const clipTrimDragState = ref<ClipTrimDragState | null>(null);
 const isPlayheadDragging = computed(() => playheadDragState.value !== null);
+const activeSnapGuideTime = computed(() => props.trimSnapGuideTime ?? props.dragPreview?.snapGuideTime);
 const isTimelineEmpty = computed(() => !props.project.tracks.some((track) => track.clips.length > 0));
 const selectedClipTrackId = computed(() => {
   if (!props.selectedClipId) {
@@ -134,6 +150,25 @@ const selectedClip = computed(() =>
   props.project.tracks.flatMap((track) => track.clips).find((clip) => clip.id === props.selectedClipId),
 );
 const canToggleAudioBeatMarkers = computed(() => selectedClip.value?.type === "audio");
+const canAlignSelectedVideoToBeatMarkers = computed(() => {
+  const clip = selectedClip.value;
+
+  if (!clip || props.project.assets.find((asset) => asset.id === clip.assetId)?.type !== "video") {
+    return false;
+  }
+
+  const track = props.project.tracks.find((item) => item.id === clip.trackId);
+
+  return !track?.locked && props.project.tracks.some((item) =>
+    item.clips.some((candidate) =>
+      candidate.type === "audio"
+      && candidate.beatMode === "auto"
+      && candidate.beatMarkers?.some((marker) =>
+        Number.isFinite(marker.time) && marker.time >= 0 && marker.time <= candidate.duration,
+      ),
+    ),
+  );
+});
 const isSelectedAudioBeatActive = computed(() => {
   const clip = selectedClip.value;
 
@@ -347,6 +382,67 @@ function beginClipPointerDrag(clip: TimelineClip, event: PointerEvent) {
   const bounds = target.getBoundingClientRect();
   const grabOffsetSeconds = clamp((event.clientX - bounds.left) / pixelsPerSecond(), 0, clip.duration);
   emit("beginClipDrag", clip.id, event.pointerId, event.clientX, event.clientY, grabOffsetSeconds);
+}
+
+function beginClipTrim(clip: TimelineClip, edge: "start" | "end", event: PointerEvent) {
+  if (event.button !== 0) {
+    return;
+  }
+
+  const target = event.currentTarget;
+
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  closeClipContextMenu();
+  emit("selectClip", clip.id);
+  target.setPointerCapture(event.pointerId);
+  clipTrimDragState.value = {
+    clipId: clip.id,
+    edge,
+    pointerId: event.pointerId,
+    element: target,
+    startClientX: event.clientX,
+  };
+  emit("beginClipTrim", clip.id, edge);
+  window.addEventListener("pointermove", handleClipTrimPointerMove);
+  window.addEventListener("pointerup", endClipTrim);
+  window.addEventListener("pointercancel", endClipTrim);
+}
+
+function handleClipTrimPointerMove(event: PointerEvent) {
+  const drag = clipTrimDragState.value;
+
+  if (!drag || event.pointerId !== drag.pointerId) {
+    return;
+  }
+
+  event.preventDefault();
+  emit("updateClipTrim", drag.clipId, drag.edge, (event.clientX - drag.startClientX) / pixelsPerSecond());
+}
+
+function endClipTrim(event?: Event) {
+  const drag = clipTrimDragState.value;
+
+  if (event instanceof PointerEvent && drag && event.pointerId !== drag.pointerId) {
+    return;
+  }
+
+  if (drag?.element.hasPointerCapture(drag.pointerId)) {
+    drag.element.releasePointerCapture(drag.pointerId);
+  }
+
+  clipTrimDragState.value = null;
+  window.removeEventListener("pointermove", handleClipTrimPointerMove);
+  window.removeEventListener("pointerup", endClipTrim);
+  window.removeEventListener("pointercancel", endClipTrim);
+
+  if (drag) {
+    emit("endClipTrim", drag.clipId);
+  }
 }
 
 function trackWidth() {
@@ -1052,6 +1148,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   endPlayheadDrag();
+  endClipTrim();
   timelineResizeObserver?.disconnect();
   window.removeEventListener("pointerdown", closeClipContextMenu);
   window.removeEventListener("keydown", handleWindowKeydown);
@@ -1099,6 +1196,23 @@ onUnmounted(() => {
             <path d="m6.5 4.5 1.45 1.45L6.5 7.4 5.05 5.95 6.5 4.5Zm6.5-1 1.45 1.45L13 6.4l-1.45-1.45L13 3.5ZM19 5l1.45 1.45L19 7.9l-1.45-1.45L19 5Z" fill="currentColor" />
           </svg>
         </button>
+        <UButton
+          color="neutral"
+          variant="ghost"
+          square
+          size="xs"
+          type="button"
+          title="将视频首尾对齐到最近标记点"
+          aria-label="将视频首尾对齐到最近标记点"
+          :disabled="!canAlignSelectedVideoToBeatMarkers"
+          @click="emit('alignSelectedVideoToBeatMarkers')"
+        >
+          <svg class="size-[17px]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 5v14M20 5v14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            <path d="M8 8.5h8v7H8z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+            <path d="m10 6.5-2 2 2 2M14 13.5l2 2-2 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </UButton>
         <UButton color="error" variant="ghost" square size="xs" type="button" title="删除" aria-label="删除选中片段" @click="emit('deleteSelected')">
           <Trash2 :size="16" />
         </UButton>
@@ -1197,6 +1311,18 @@ onUnmounted(() => {
         @scroll="handleTimelineScroll"
       >
         <div class="relative min-h-full" :style="{ width: trackWidth() }">
+          <div
+            v-if="activeSnapGuideTime !== undefined"
+            class="pointer-events-none absolute bottom-0 top-0 z-[26] w-[2px] -translate-x-1/2 bg-[#67e8f9] shadow-[0_0_12px_rgb(34_211_238/0.82)]"
+            :style="{ left: `${activeSnapGuideTime * pixelsPerSecond()}px` }"
+            data-timeline-snap-guide
+            aria-hidden="true"
+          >
+            <span class="absolute left-1 top-1 z-10 whitespace-nowrap rounded border border-[#155e75] bg-[#083344]/95 px-1.5 py-0.5 font-mono text-[9px] font-black leading-none text-[#a5f3fc] shadow-lg">
+              对齐 · {{ formatTimecode(activeSnapGuideTime) }}
+            </span>
+          </div>
+
           <div class="sticky top-0 z-10 h-8 border-b border-[#20242f] bg-[#11151e]">
             <span
               v-for="tick in rulerTicks"
@@ -1331,7 +1457,7 @@ onUnmounted(() => {
                 clipTrackStateClass(track),
                 clipStateClass(clip),
                 isTimelineVideoClip(clip) ? 'top-1 h-[70px] rounded-md' : 'top-2 h-[38px] rounded-lg',
-                selectedClipId === clip.id ? 'ring-2 ring-white shadow-[0_0_0_1px_rgb(255_255_255/0.38),0_0_18px_rgb(255_255_255/0.18)]' : '',
+                selectedClipId === clip.id ? 'ring-2 ring-inset ring-white shadow-[0_0_18px_rgb(255_255_255/0.18)]' : '',
                 draggingClipId === clip.id ? 'pointer-events-none z-0 cursor-grabbing !opacity-20 saturate-50' : 'z-[5] cursor-grab active:cursor-grabbing',
               ]"
               :style="clipStyle(clip)"
@@ -1343,6 +1469,24 @@ onUnmounted(() => {
               @contextmenu.stop.prevent="openClipContextMenu(clip, $event)"
               @keydown="handleClipKeydown(clip, $event)"
             >
+              <button
+                class="group/trim absolute inset-y-0 left-0 z-20 w-3 cursor-ew-resize touch-none bg-transparent outline-none"
+                type="button"
+                :aria-label="`拖动裁剪 ${clip.name} 的开头`"
+                @pointerdown="beginClipTrim(clip, 'start', $event)"
+                @click.stop
+              >
+                <span class="absolute inset-y-0 left-0 w-[2px] bg-white/0 transition-[background-color,box-shadow] group-hover/trim:bg-[#67e8f9] group-focus-visible/trim:bg-[#67e8f9] group-active/trim:bg-[#67e8f9] group-hover/trim:shadow-[0_0_9px_rgb(34_211_238/0.9)]"></span>
+              </button>
+              <button
+                class="group/trim absolute inset-y-0 right-0 z-20 w-3 cursor-ew-resize touch-none bg-transparent outline-none"
+                type="button"
+                :aria-label="`拖动裁剪 ${clip.name} 的结尾`"
+                @pointerdown="beginClipTrim(clip, 'end', $event)"
+                @click.stop
+              >
+                <span class="absolute inset-y-0 right-0 w-[2px] bg-white/0 transition-[background-color,box-shadow] group-hover/trim:bg-[#67e8f9] group-focus-visible/trim:bg-[#67e8f9] group-active/trim:bg-[#67e8f9] group-hover/trim:shadow-[0_0_9px_rgb(34_211_238/0.9)]"></span>
+              </button>
               <template v-if="isTimelineVideoClip(clip)">
                 <div class="grid size-full grid-rows-[18px_minmax(0,1fr)_15px] bg-[#042f34]">
                   <header class="flex min-w-0 items-center justify-between gap-2 bg-[#09636a] px-1.5 font-mono text-[9px] font-bold leading-[18px] text-[#d9ffff]">

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Component } from "vue";
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   Aperture,
   AudioLines,
@@ -40,16 +40,23 @@ import {
 } from "@lucide/vue";
 import lingluxLogo from "./assets/linglux-logo-no-text.png";
 import LingluxEditor from "./components/editor/LingluxEditor.vue";
+import type {
+  AgentProviderSettingsSummary,
+  SaveAgentProviderSettingsRequest,
+} from "./types/agent";
 import type { Artifact, EditSession, EditorExportResult, EditorSessionSeed } from "./types/editor";
 import { createSeededEditSession } from "./lib/editorProject";
 
-type ApiProviderValue = "openai" | "openrouter" | "custom";
+type ApiProviderValue = "deepseek" | "openai" | "openrouter" | "custom";
 type AppTheme = "dark" | "light";
 
 interface ApiKeySettings {
   provider: string;
   baseUrl: string;
+  model: string;
   apiKey: string;
+  hasApiKey: boolean;
+  maskedApiKey: string;
 }
 
 interface SupportNavItem {
@@ -113,16 +120,20 @@ const API_KEY_STORAGE_KEY = "linglux-api-key-settings";
 const THEME_STORAGE_KEY = "linglux-theme";
 const CAMERA_PROMPT_PREFIX = "Camera:";
 
-const apiProviderOptions: Array<{ label: string; value: ApiProviderValue; baseUrl: string }> = [
-  { label: "OpenAI", value: "openai", baseUrl: "https://api.openai.com/v1" },
-  { label: "OpenRouter", value: "openrouter", baseUrl: "https://openrouter.ai/api/v1" },
-  { label: "自定义", value: "custom", baseUrl: "https://api.openai.com/v1" },
+const apiProviderOptions: Array<{ label: string; value: ApiProviderValue; baseUrl: string; model: string }> = [
+  { label: "DeepSeek", value: "deepseek", baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash" },
+  { label: "OpenAI", value: "openai", baseUrl: "https://api.openai.com/v1", model: "gpt-5-mini" },
+  { label: "OpenRouter", value: "openrouter", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-5-mini" },
+  { label: "自定义", value: "custom", baseUrl: "https://api.openai.com/v1", model: "" },
 ];
 
 const defaultApiKeySettings: ApiKeySettings = {
-  provider: "openai",
-  baseUrl: "https://api.openai.com/v1",
+  provider: "deepseek",
+  baseUrl: "https://api.deepseek.com",
+  model: "deepseek-v4-flash",
   apiKey: "",
+  hasApiKey: false,
+  maskedApiKey: "未配置",
 };
 
 const cameraTypeTabs: CameraTypeTab[] = [
@@ -666,7 +677,7 @@ const workspaceNav: WorkspaceNavItem[] = [
   { label: "导出记录", icon: Download },
 ];
 
-const hasSavedApiKey = computed(() => apiKeySettings.value.apiKey.trim().length > 0);
+const hasSavedApiKey = computed(() => apiKeySettings.value.hasApiKey || apiKeySettings.value.apiKey.trim().length > 0);
 
 const supportNav = computed<SupportNavItem[]>(() => [
   { label: "API Key 设置", meta: hasSavedApiKey.value ? "saved" : "empty", icon: KeyRound, action: "api-key" },
@@ -717,7 +728,7 @@ const wires = computed<WireDisplay[]>(() =>
     ];
   }),
 );
-const savedApiKeyHint = computed(() => maskApiKey(apiKeySettings.value.apiKey));
+const savedApiKeyHint = computed(() => apiKeySettings.value.maskedApiKey || maskApiKey(apiKeySettings.value.apiKey));
 const activeProviderLabel = computed(() => getProviderLabel(apiKeySettings.value.provider));
 const activeCameraBodies = computed(() => cameraBodies.filter((camera) => camera.category === selectedCameraCategory.value));
 const activeCameraProfile = computed(() => findCameraBody(selectedCameraBodyId.value) ?? activeCameraBodies.value[0] ?? cameraBodies[0]);
@@ -766,6 +777,10 @@ function getProviderBaseUrl(provider: string) {
   return apiProviderOptions.find((option) => option.value === provider)?.baseUrl ?? defaultApiKeySettings.baseUrl;
 }
 
+function getProviderModel(provider: string) {
+  return apiProviderOptions.find((option) => option.value === provider)?.model ?? defaultApiKeySettings.model;
+}
+
 function getProviderLabel(provider: string) {
   return apiProviderOptions.find((option) => option.value === provider)?.label ?? "自定义";
 }
@@ -773,11 +788,17 @@ function getProviderLabel(provider: string) {
 function normalizeApiKeySettings(settings?: Partial<ApiKeySettings> | null): ApiKeySettings {
   const provider = settings?.provider?.trim() || defaultApiKeySettings.provider;
   const baseUrl = (settings?.baseUrl?.trim() || getProviderBaseUrl(provider)).replace(/\/+$/, "");
+  const apiKey = settings?.apiKey?.trim() || "";
+  const hasApiKey = settings?.hasApiKey === true || apiKey.length > 0;
+  const model = settings?.model === undefined ? getProviderModel(provider) : settings.model.trim();
 
   return {
     provider,
     baseUrl,
-    apiKey: settings?.apiKey?.trim() || "",
+    model,
+    apiKey,
+    hasApiKey,
+    maskedApiKey: settings?.maskedApiKey?.trim() || (hasApiKey ? maskApiKey(apiKey) : "未配置"),
   };
 }
 
@@ -791,7 +812,14 @@ function readLocalApiKeySettings() {
 }
 
 function writeLocalApiKeySettings(settings: ApiKeySettings) {
-  window.localStorage.setItem(API_KEY_STORAGE_KEY, JSON.stringify(settings));
+  window.localStorage.setItem(API_KEY_STORAGE_KEY, JSON.stringify({
+    provider: settings.provider,
+    baseUrl: settings.baseUrl,
+    model: settings.model,
+    apiKey: "",
+    hasApiKey: false,
+    maskedApiKey: "桌面应用中配置",
+  }));
 }
 
 function removeLocalApiKeySettings() {
@@ -814,7 +842,11 @@ function maskApiKey(apiKey: string) {
 
 async function loadApiKeySettings() {
   try {
-    apiKeySettings.value = normalizeApiKeySettings(await invoke<ApiKeySettings>("load_api_key_settings"));
+    const settings = await invoke<AgentProviderSettingsSummary>("load_agent_provider_settings");
+    apiKeySettings.value = normalizeApiKeySettings({
+      ...settings,
+      apiKey: "",
+    });
   } catch {
     apiKeySettings.value = readLocalApiKeySettings();
   }
@@ -902,7 +934,7 @@ function handleEditorExport(result: EditorExportResult) {
 }
 
 function openApiKeyPanel() {
-  apiKeyDraft.value = { ...apiKeySettings.value };
+  apiKeyDraft.value = { ...apiKeySettings.value, apiKey: "" };
   isApiKeyPanelOpen.value = true;
 }
 
@@ -972,11 +1004,16 @@ function updateApiKeyPanelOpen(open: boolean) {
 function selectApiProvider(provider: ApiProviderValue) {
   const currentBaseUrl = getProviderBaseUrl(apiKeyDraft.value.provider);
   const nextBaseUrl = getProviderBaseUrl(provider);
+  const currentModel = getProviderModel(apiKeyDraft.value.provider);
+  const nextModel = getProviderModel(provider);
 
   apiKeyDraft.value.provider = provider;
 
   if (!apiKeyDraft.value.baseUrl || apiKeyDraft.value.baseUrl === currentBaseUrl) {
     apiKeyDraft.value.baseUrl = nextBaseUrl;
+  }
+  if (!apiKeyDraft.value.model || apiKeyDraft.value.model === currentModel) {
+    apiKeyDraft.value.model = nextModel;
   }
 }
 
@@ -986,44 +1023,85 @@ function updateApiProvider(value: string | number) {
 
 async function saveApiKeySettings() {
   const settings = normalizeApiKeySettings(apiKeyDraft.value);
+  const canReuseSavedKey =
+    settings.provider === apiKeySettings.value.provider && hasSavedApiKey.value;
 
-  if (!settings.apiKey) {
+  if (!settings.apiKey && !canReuseSavedKey) {
     apiKeyMessage.value = "请输入 API Key 后再保存";
     hostStatus.value = "API Key required";
     return;
   }
+  if (!settings.model) {
+    apiKeyMessage.value = "请输入支持 Tool Calls 的聊天模型 ID";
+    hostStatus.value = "Chat model required";
+    return;
+  }
 
   isSavingApiKey.value = true;
+  let saved = false;
 
   try {
-    apiKeySettings.value = normalizeApiKeySettings(
-      await invoke<ApiKeySettings>("save_api_key_settings", { settings }),
-    );
+    const request: SaveAgentProviderSettingsRequest = {
+      provider: settings.provider,
+      baseUrl: settings.baseUrl,
+      model: settings.model,
+      apiKey: settings.apiKey || undefined,
+    };
+    const summary = await invoke<AgentProviderSettingsSummary>("save_agent_provider_settings", {
+      settings: request,
+    });
+    apiKeySettings.value = normalizeApiKeySettings({ ...summary, apiKey: "" });
     removeLocalApiKeySettings();
-  } catch {
-    apiKeySettings.value = settings;
-    writeLocalApiKeySettings(settings);
+    saved = true;
+  } catch (error) {
+    if (isTauri()) {
+      apiKeyMessage.value = normalizeHostError(error);
+      hostStatus.value = "Provider settings failed";
+    } else {
+      apiKeySettings.value = normalizeApiKeySettings(settings);
+      writeLocalApiKeySettings(apiKeySettings.value);
+      saved = true;
+    }
   } finally {
-    apiKeyDraft.value = { ...apiKeySettings.value };
     isSavingApiKey.value = false;
-    apiKeyMessage.value = `已保存 ${activeProviderLabel.value} · ${savedApiKeyHint.value}`;
-    hostStatus.value = `API Key ready: ${activeProviderLabel.value}`;
+    if (saved) {
+      apiKeyDraft.value = { ...apiKeySettings.value, apiKey: "" };
+      apiKeyMessage.value = `已保存 ${activeProviderLabel.value} · ${savedApiKeyHint.value}`;
+      hostStatus.value = `API Key ready: ${activeProviderLabel.value}`;
+    }
   }
+}
+
+function normalizeHostError(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }
 
 async function clearApiKeySettings() {
   isClearingApiKey.value = true;
+  let cleared = false;
 
   try {
-    await invoke("clear_api_key_settings");
-  } catch {
-    // Web preview does not have Tauri commands, so local storage is the fallback path.
+    await invoke<AgentProviderSettingsSummary>("clear_agent_provider_settings");
+    cleared = true;
+  } catch (error) {
+    if (isTauri()) {
+      apiKeyMessage.value = normalizeHostError(error);
+      hostStatus.value = "Provider key clear failed";
+    } else {
+      cleared = true;
+    }
   } finally {
-    removeLocalApiKeySettings();
-    apiKeySettings.value = { ...defaultApiKeySettings };
-    apiKeyDraft.value = { ...defaultApiKeySettings };
-    apiKeyMessage.value = "API Key 已清除";
-    hostStatus.value = "API Key required";
+    if (cleared) {
+      removeLocalApiKeySettings();
+      apiKeySettings.value = { ...defaultApiKeySettings };
+      apiKeyDraft.value = { ...defaultApiKeySettings };
+      apiKeyMessage.value = "API Key 已清除";
+      hostStatus.value = "API Key required";
+    }
     isClearingApiKey.value = false;
   }
 }
@@ -2518,7 +2596,7 @@ onUnmounted(() => {
               :content="false"
               variant="pill"
               aria-label="API provider"
-              :ui="{ list: 'grid h-9 grid-cols-3 gap-0.5 rounded-[5px] border border-[#222228] bg-[#15151a] p-0.5', indicator: 'rounded bg-[#0f2f2e] ring-1 ring-[#115e59]', trigger: 'justify-center rounded text-[10px] font-extrabold text-[#6b7280] data-[state=active]:text-[#14b8a6]' }"
+              :ui="{ list: 'grid h-9 grid-cols-4 gap-0.5 rounded-[5px] border border-[#222228] bg-[#15151a] p-0.5', indicator: 'rounded bg-[#0f2f2e] ring-1 ring-[#115e59]', trigger: 'justify-center rounded text-[10px] font-extrabold text-[#6b7280] data-[state=active]:text-[#14b8a6]' }"
               @update:model-value="updateApiProvider"
             />
           </div>
@@ -2535,6 +2613,18 @@ onUnmounted(() => {
             />
           </label>
 
+          <label class="grid gap-2" for="api-model-id">
+            <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">聊天模型 ID</span>
+            <UInput
+              id="api-model-id"
+              v-model="apiKeyDraft.model"
+              class="w-full"
+              :ui="{ base: 'h-10 rounded bg-[#15151a] px-3 text-[12px] text-[#d1d5db] ring-[#222228]' }"
+              placeholder="deepseek-v4-flash"
+              spellcheck="false"
+            />
+          </label>
+
           <label class="grid gap-2" for="api-key-input">
             <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">API Key</span>
             <UInput
@@ -2544,6 +2634,7 @@ onUnmounted(() => {
               :ui="{ base: 'h-10 rounded bg-[#15151a] px-3 pr-11 text-[12px] text-[#d1d5db] ring-[#222228]', trailing: 'pe-1.5' }"
               :type="showApiKey ? 'text' : 'password'"
               autocomplete="off"
+              :placeholder="hasSavedApiKey ? '已保存在系统钥匙串；留空表示不更换' : '输入新的 API Key'"
               spellcheck="false"
             >
               <template #trailing>
@@ -2566,6 +2657,9 @@ onUnmounted(() => {
             <KeyRound :size="14" class="shrink-0 text-[#10b981]" />
             <span class="min-w-0 truncate">{{ apiKeyMessage }}</span>
           </div>
+          <p class="text-[9px] font-semibold leading-4 text-[#596273]">
+            桌面端密钥由 Rust 宿主持有并优先写入系统钥匙串；钥匙串不可用时仅保留当前会话。AI 对话不会获得密钥、媒体路径或原始媒体文件。
+          </p>
         </section>
 
         <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-[#222228] px-5 py-4">
