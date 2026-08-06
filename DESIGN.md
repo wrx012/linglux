@@ -29,12 +29,15 @@ Linglux 面向希望在本地桌面环境中完成专业视频创作的用户：
 - 桌面导入会把用户选择的文件复制或克隆到 app data 下的项目目录，并生成 `file://`/asset protocol 可访问地址。
 - 视频、图片和音频派生资源包括缩略图、波形峰值和按需生成的视频代理文件。
 - 导出已经从纯模拟推进到 FFmpeg 流程，能够输出文件和旁路 manifest，并把完成结果回写到工作流。
+- 剪辑器已经接入真实的对话式 Agent：模型通过受控 Tool Calls 读取净化后的工程元数据、返回结构化剪辑计划，用户确认后才由本地时间线事务执行。
+- 托管的分镜拼图可在前端识别网格并校对裁切框，再由 Rust/FFmpeg 按行优先顺序生成可取消的 H.264 MP4，结果回到工程素材库。
+- macOS Apple Silicon 上可按需安装固定版本的 CosyVoice 运行时和模型，在本地合成中文配音并导入为托管 WAV 素材。
 
 仍属于原型阶段的能力：
 
-- 工作流侧的 AI provider 调用仍主要是模拟或 host bridge smoke test。
+- 工作流侧的图像/视频 AI provider 调用仍主要是模拟或 host bridge smoke test；剪辑 Agent 的聊天 provider 已是真实调用。
 - 真实项目打开/最近项目列表、素材缺失恢复、跨项目资产复用和完整文件浏览还未产品化。
-- 生产级密钥存储、provider 成本统计、失败重试策略和任务日志 UI 还未完成。
+- 密钥已进入操作系统凭据库，但凭据迁移/恢复、provider 成本统计、失败重试策略和任务日志 UI 还未完成。
 - FFmpeg 依赖当前通过本机 PATH 或常见安装目录发现，尚未作为 bundle sidecar 完整交付。
 
 ## Technology Stack
@@ -46,7 +49,7 @@ Frontend:
 - Nuxt UI Vue/Vite 插件提供基础 UI 组件和主题变量。
 - `@lucide/vue` 用于常见动作图标。
 - Tailwind CSS v4 通过 Nuxt UI/Tailwind 栈参与样式构建。
-- npm 和 `package-lock.json` 是当前包管理约定。
+- pnpm 和 `pnpm-lock.yaml` 是当前包管理约定。
 
 Desktop host:
 
@@ -70,7 +73,7 @@ External runtime:
 - `DESIGN.md`: 当前产品和架构设计文档。
 - `AGENTS.md`: 给代码代理的仓库操作指南。
 - `MEDIA_CORE.md`: 媒体内核设计、目录布局、任务模型和验证方法。
-- `package.json`: npm scripts 与前端/Tauri 依赖。
+- `package.json`: pnpm scripts 与前端/Tauri 依赖。
 - `vite.config.ts`: Vite、Vue、Nuxt UI 插件与 dev server 配置。
 - `src/main.ts`: Vue app 入口，注册 Nuxt UI 插件。
 - `src/App.vue`: 应用外壳和工作流工作区。
@@ -104,13 +107,17 @@ flowchart TD
   Editor --> ExportDialog["ExportDialog\nPreset, progress, location"]
 
   Editor --> Tauri["Tauri commands\ninvoke + Channel<TaskEvent>"]
+  Agent["Editor Agent panel\nChat + plan confirmation"] --> Tauri
   Workflow --> Tauri
 
   Tauri --> Store["ProjectStore\nmanifest.json + backup"]
   Tauri --> Tasks["TaskManager\njournal + cancellation"]
   Tauri --> Import["Import pipeline\nclone, hard link, copy"]
   Tauri --> Derivatives["Media derivatives\nthumbnail, waveform, proxy"]
+  Tauri --> Storyboard["Storyboard encoder\ngrid crops to H.264 MP4"]
+  Tauri --> TTS["Local TTS\npinned CosyVoice to managed WAV"]
   Tauri --> Export["FFmpeg export\nsegments, captions, audio mix"]
+  Tauri --> Provider["Agent provider runtime\nDeepSeek / OpenAI-compatible"]
 
   Store --> AppData["App data/media-core"]
   Import --> AppData
@@ -167,6 +174,7 @@ Target direction:
 - Import, derivative and export task status.
 - Object URL lifecycle for web fallback imports.
 - Project history and future stacks for undo/redo.
+- Agent conversation UI, editor-version staleness checks and atomic plan application.
 
 Child components remain focused:
 
@@ -176,6 +184,22 @@ Child components remain focused:
 - `InspectorPanel.vue` edits selected clip transform, audio/effect settings and text style.
 - `ExportDialog.vue` manages export preset selection, progress, cancellation, reveal and completion.
 - `AudioWaveform.vue` renders waveform peaks in a stable canvas surface.
+- `AgentChatPanel.vue` renders persistent conversation, cancellable request state, plan previews and explicit apply/reject controls.
+- `StoryboardToVideoDialog.vue` detects storyboard grids, previews crop geometry, and submits typed frame-sequence tasks.
+
+### Conversational Editing Agent
+
+The editor Agent is a bounded domain agent rather than GUI automation:
+
+1. Vue creates a sanitized snapshot containing IDs, names, types, durations, track/clip timing, locks, selection and playhead.
+2. The Rust host loads the provider key from the OS credential vault and runs at most four model rounds and twelve read-only tool calls.
+3. The model may inspect assets, timeline and selection, then either ask a clarification or call `propose_edit_plan`.
+4. Vue dry-runs the typed plan against a project clone. Plans use integer milliseconds and carry the editor version they were generated from.
+5. The user confirms the plan. All affected tracks are applied as one existing history transaction, so one undo restores the pre-Agent state.
+
+The first operation set is `addAssetRange`, `keepClipSourceRange`, `removeClipSourceRange`, `splitClipAtTimeline`, `deleteClip` and `moveClip`. Raw media, local paths, URLs, thumbnails, waveforms and fingerprints are never sent to the provider. Ambiguous names or time expressions must produce a clarification instead of a guessed edit.
+
+Provider endpoints must use HTTPS. Agent task results are delivered live to the editor but omitted from task journals, keeping persisted conversation content inside the bounded project sidecar.
 
 ### Editor Data Shape
 
@@ -404,19 +428,28 @@ Frontend-callable commands are registered in `src-tauri/src/lib.rs`.
 Current command surface:
 
 - `create_video_plan`
-- `load_api_key_settings`
-- `save_api_key_settings`
-- `clear_api_key_settings`
+- `load_agent_provider_settings`
+- `save_agent_provider_settings`
+- `clear_agent_provider_settings`
+- `start_editor_agent_turn`
+- `cancel_editor_agent_turn`
+- `load_agent_conversation`
+- `update_agent_plan_state`
+- `clear_agent_conversation`
 - `create_edit_session`
 - `load_edit_project`
 - `save_edit_project`
 - `start_import_media`
+- `start_storyboard_to_video`
 - `start_media_derivatives`
 - `start_export`
 - `cancel_media_task`
 - `get_media_task`
 - `list_media_tasks`
 - `reveal_export_file`
+- `get_tts_status`
+- `start_tts_setup`
+- `start_speech_synthesis`
 
 Design rules:
 
@@ -427,14 +460,27 @@ Design rules:
 - Do not use raw OS paths directly in UI media elements; convert managed paths with Tauri asset helpers.
 - Keep web fallback behavior for frontend-only development unless a feature is explicitly desktop-only.
 
+### Local AI Voiceover
+
+The editor audio panel can synthesize Mandarin voiceover locally on macOS Apple Silicon. The first release uses the pinned Apache-2.0 CosyVoice-300M-Instruct model with its built-in Chinese male and female speakers. Runtime and model files are installed on demand under `media-core/tts/`; generated WAV files enter the normal managed-media, waveform, timeline, save, preview, and export paths.
+
+Setup and synthesis use the existing observable task model and a dedicated single-worker speech queue so the model is never loaded concurrently. Vue sends only typed text/voice/emotion/speed intent. Rust owns validated paths, downloads, checksums, the Python worker, cancellation, temporary-file cleanup, and project import. Voice cloning and browser synthesis are intentionally out of scope.
+
+### Storyboard Frame Sequence
+
+The storyboard dialog analyzes an imported image in the WebView, proposes row/column separators and crop rectangles, and lets the user correct margins, gaps, top trim, frame count, and FPS. The Rust boundary accepts only a source already contained in the current project package, validates every crop, limits requests to 240 frames and 120 FPS, and delegates encoding to the cancellable FFmpeg runner.
+
+Frames are read in row-major order and scaled to the smallest even crop size before H.264/YUV420p encoding. The completed MP4 is written directly into managed project media and then follows the normal metadata, derivative, timeline, save, preview, and export paths. This is deterministic frame-sequence assembly, not an AI video provider.
+
 ## Security And Permissions
 
 Current Tauri security posture:
 
 - `src-tauri/capabilities/default.json` grants `core:default` and `dialog:allow-open`.
 - Asset protocol is enabled only for `$APPDATA/**`.
-- Desktop API key settings are persisted under the Tauri app config directory as `api-key-settings.json`.
-- Web preview uses `localStorage` key `linglux-api-key-settings`.
+- Provider metadata is persisted under the Tauri app config directory while API keys are stored in the operating-system credential vault; the WebView receives only masked key state.
+- A legacy plaintext `api-key-settings.json` key is migrated to the credential vault and removed from the JSON payload. If the credential vault is unavailable, a newly entered key remains session-only.
+- Web preview does not call Agent providers and does not persist a usable API key.
 - Export reveal is guarded so arbitrary paths are not opened.
 
 Security rules:
@@ -444,7 +490,7 @@ Security rules:
 - Mask keys in UI summaries.
 - Do not broaden Tauri permissions unless a user-visible feature requires it.
 - Scope file system, shell, network and secret-storage access narrowly.
-- Treat prototype JSON/localStorage key storage as non-final; production needs OS-backed secret storage or equivalent.
+- Keep provider secrets in the OS credential vault; JSON sidecars, localStorage, task journals, logs, and project/export data may contain metadata or masked state only.
 
 ## Styling And Interaction Direction
 
@@ -483,7 +529,7 @@ Project and media data will evolve. Current principles:
 
 Product gaps:
 
-- Real AI model/provider integration is not implemented end-to-end.
+- Image/video generation provider integration is not implemented end-to-end; the editor Agent provider path is real.
 - Node outputs are not yet durable project assets in a fully general way.
 - Project browser, recent files and missing media recovery are not complete.
 - Export queue UI and historical task log UI are minimal.
@@ -508,10 +554,10 @@ Near-term architecture work:
 2. Add project browser and recent project flow.
 3. Improve task log UI with retry, cancellation and recoverable errors.
 4. Bundle or configure FFmpeg sidecars for packaged desktop builds.
-5. Normalize provider request/response contracts for real AI jobs.
-6. Store API secrets in a production-grade secret backend.
+5. Extend the normalized Agent provider contract to image/video generation jobs.
+6. Harden credential-vault migration, recovery, and provider-specific secret lifecycle.
 7. Expand export coverage for transforms, opacity, track enablement and text styling.
-8. Add focused tests around project normalization, timeline edits and Tauri bridge payloads.
+8. Expand focused tests beyond the current Agent executor, TTS helpers, beat alignment, storyboard encoder, and media-core coverage.
 
 Medium-term product work:
 
@@ -527,10 +573,16 @@ Medium-term product work:
 Use the narrowest reliable validation for touched areas:
 
 ```sh
-npm run build
+pnpm build
 ```
 
 Frontend and shared TypeScript validation.
+
+```sh
+pnpm test
+```
+
+Frontend unit tests for Agent plan execution, TTS helpers, and beat-marker alignment.
 
 ```sh
 cargo check --manifest-path src-tauri/Cargo.toml
@@ -545,7 +597,7 @@ cargo test --manifest-path src-tauri/Cargo.toml -p linglux-media-core
 Media-core unit tests.
 
 ```sh
-npm run tauri:build
+pnpm tauri:build
 ```
 
 Packaging, window, bundle, permission and full desktop build validation.

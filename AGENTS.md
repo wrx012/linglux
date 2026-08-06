@@ -14,7 +14,7 @@ Keep changes narrow. Do not revert unrelated uncommitted work, generated output,
 
 ## Current Architecture
 
-Linglux is a Vue 3 + TypeScript + Vite frontend wrapped by Tauri 2. Styling uses Tailwind CSS v4 through the current Vite/Nuxt UI stack, UI primitives come from `@nuxt/ui`, icons come from `@lucide/vue`, and the package manager is npm with `package-lock.json`.
+Linglux is a Vue 3 + TypeScript + Vite frontend wrapped by Tauri 2. Styling uses Tailwind CSS v4 through the current Vite/Nuxt UI stack, UI primitives come from `@nuxt/ui`, icons come from `@lucide/vue`, and the package manager is pnpm with `pnpm-lock.yaml`.
 
 Required runtimes are Node.js 20 or later for frontend work and a Rust toolchain for desktop work. The Tauri crate uses Rust edition 2021 and declares minimum Rust `1.77.2`.
 
@@ -23,20 +23,22 @@ The app currently has two primary workspaces:
 - Workflow workspace in `src/App.vue`: dark node canvas, node palette, graph state, node drag/pan behavior, camera prompt controls, API key/settings UI, generation simulations, artifacts, and workspace switching.
 - Editor workspace under `src/components/editor/`: media bin, preview monitor, timeline, clip inspector, export dialog, local edit-session state, undo/redo, import handling, preview playback, task-backed save/export bridge calls, and web-preview fallbacks.
 
-The desktop media layer lives in Rust under `src-tauri/crates/linglux-media-core`. It owns managed project media, manifest persistence, derivative cache, task journals, import, thumbnail/waveform/proxy generation, FFmpeg process execution, and queue/cancellation primitives.
+The desktop media layer lives in Rust under `src-tauri/crates/linglux-media-core`. It owns managed project media, manifest persistence, derivative cache, task journals, import, thumbnail/waveform/proxy generation, storyboard-frame encoding, local TTS, FFmpeg process execution, and queue/cancellation primitives.
 
-The current implementation is still a prototype in the AI-provider sense. Real model calls, provider task queues, provider cancellation/retry policy, cost reporting, full project browser UX, durable cross-project asset reuse, and production secret storage are not complete. Managed media import, project manifest save/load, media derivatives, task events, cancellation hooks, and FFmpeg export are real implementation paths and should not be described as purely simulated.
+The current implementation is still a prototype in the image/video-provider sense. The editor Agent performs real OpenAI-compatible model calls and desktop keys use the OS credential vault, but image/video generation providers, general provider queues, retry policy, cost reporting, full project browser UX, and durable cross-project asset reuse are not complete. Managed media import, project manifest save/load, media derivatives, task events, cancellation hooks, storyboard encoding, local TTS, and FFmpeg export are real implementation paths and should not be described as purely simulated.
 
 ## Important Files
 
 - `DESIGN.md`: product goals, architecture boundaries, current implementation snapshot, target data model, roadmap, and design principles.
 - `MEDIA_CORE.md`: media-core layout, task model, import/derivative/export responsibilities, storage policy, and validation notes.
 - `README.md`: setup, development, build, troubleshooting, and platform requirements.
-- `package.json`: npm scripts and dependency source of truth.
+- `package.json`: pnpm scripts and dependency source of truth.
 - `vite.config.ts`: Vue, Nuxt UI, theme defaults, and dev server configuration.
 - `src/main.ts`: Vue app entry and Nuxt UI plugin registration.
 - `src/App.vue`: app shell and workflow workspace. It owns workflow nodes/edges, canvas interaction state, API key/settings panel state, camera controls, `activeWorkspace`, `editSession`, and generated/exported artifacts.
-- `src/components/editor/LingluxEditor.vue`: editor workspace orchestration. It owns the editable project clone, selection, playback state, history/future stacks, imported object URLs, managed import/derivative tasks, timeline operations, save/export actions, shortcuts, and child component wiring.
+- `src/components/editor/LingluxEditor.vue`: editor workspace orchestration. It owns the editable project clone, selection, playback state, history/future stacks, imported object URLs, managed import/derivative tasks, Agent plan application, timeline operations, save/export actions, shortcuts, and child component wiring.
+- `src/components/editor/AgentChatPanel.vue`: persistent AI conversation, task cancellation, typed plan preview, explicit apply/reject controls, and desktop-only provider messaging.
+- `src/components/editor/StoryboardToVideoDialog.vue`: storyboard-grid detection, crop preview, frame/FPS controls, and cancellable frame-sequence generation UI.
 - `src/components/editor/MediaBin.vue`: media import, native dialog bridge, web file fallback, search/filter tabs, multi-select, preset audio/text assets, asset drag start, and audio preview.
 - `src/components/editor/PreviewMonitor.vue`: responsive 16:9 preview frame, native video playback clock, timeline audio sync, caption overlay rendering, playhead synchronization, and preview fallback states.
 - `src/components/editor/TimelinePanel.vue`: track controls, virtualized ruler/clips, playhead/ruler, clip context menu, drag/drop targets, split/trim/delete actions, zoom, snapping, magnetic main track, waveform and beat-marker display, and visibility/audio toggles.
@@ -45,6 +47,9 @@ The current implementation is still a prototype in the AI-provider sense. Real m
 - `src/components/editor/ExportDialog.vue`: export preset selection, task progress, cancellation, reveal/open-location, and completion UI.
 - `src/types/editor.ts`: frontend editor data contracts, including media tasks, managed media fields, text style, beat markers, and export results.
 - `src/lib/editorProject.ts`: editor defaults, export presets, project/session helpers, clip factory, duration/timecode utilities, normalization, cloning, and primary-track gap closing.
+- `src/lib/editorAgent.ts`: sanitized Agent project snapshots, typed plan validation, dry-run preview, and deterministic edit-plan execution.
+- `src/lib/beatMarkerAlignment.ts`: beat-marker alignment helpers covered by Vitest.
+- `src/lib/tts.ts`: frontend TTS validation, status labels, and supported voice/emotion options.
 - `src/style.css`: Tailwind import, base rules, transitions, canvas/editor utilities, sockets, scrollbars, and shared range styling.
 - `src-tauri/src/lib.rs`: Tauri commands, API key settings persistence, media-core setup, project save/load, import/derivative/export task bridges, FFmpeg export orchestration, and reveal-file guard.
 - `src-tauri/crates/linglux-media-core/src/project_store.rs`: project directory and manifest persistence.
@@ -52,6 +57,9 @@ The current implementation is still a prototype in the AI-provider sense. Real m
 - `src-tauri/crates/linglux-media-core/src/import.rs`: desktop media import, supported extensions, fingerprinting, clone/hard-link/copy strategy, and progress.
 - `src-tauri/crates/linglux-media-core/src/media.rs`: metadata probing, thumbnail/waveform/proxy generation, warnings, and cache pruning.
 - `src-tauri/crates/linglux-media-core/src/ffmpeg.rs`: FFmpeg/FFprobe discovery and process execution.
+- `src-tauri/crates/linglux-media-core/src/storyboard.rs`: validated storyboard crops and cancellable H.264 frame-sequence encoding.
+- `src-tauri/crates/linglux-media-core/src/tts.rs`: pinned local CosyVoice setup, synthesis lifecycle, and managed WAV import.
+- `src-tauri/src/agent.rs`: provider settings, credential-vault integration, bounded tool-call loop, conversation sidecar, and Agent task cancellation.
 - `src-tauri/tauri.conf.json`: Tauri dev/build URLs, window settings, asset protocol, security, and bundle configuration.
 - `src-tauri/capabilities/default.json`: current Tauri permissions.
 
@@ -60,21 +68,21 @@ The current implementation is still a prototype in the AI-provider sense. Real m
 Install dependencies:
 
 ```sh
-npm install
+pnpm install
 ```
 
 Run the web UI only:
 
 ```sh
-npm run dev
+pnpm dev
 ```
 
-`npm run dev` serves Vite on `127.0.0.1:1420` with `--strictPort`. If that port is already in use, stop the existing process instead of silently switching ports.
+`pnpm dev` serves Vite on `127.0.0.1:1420` with `--strictPort`. If that port is already in use, stop the existing process instead of silently switching ports.
 
 Run the desktop app:
 
 ```sh
-npm run tauri:dev
+pnpm tauri:dev
 ```
 
 Tauri starts the Vite dev server from `src-tauri/tauri.conf.json`; do not run a separate Vite server first unless intentionally debugging the frontend alone.
@@ -82,23 +90,24 @@ Tauri starts the Vite dev server from `src-tauri/tauri.conf.json`; do not run a 
 Build the frontend:
 
 ```sh
-npm run build
+pnpm build
 ```
 
 Build the desktop app:
 
 ```sh
-npm run tauri:build
+pnpm tauri:build
 ```
 
 ## Validation
 
 Before handing off code changes, run the narrowest reliable validation for the files touched:
 
-- Frontend or shared TypeScript changes: `npm run build`.
+- Frontend or shared TypeScript changes: `pnpm build`.
+- Frontend logic covered by unit tests: `pnpm test`.
 - Tauri command, Rust bridge, or host setup changes: `cargo check --manifest-path src-tauri/Cargo.toml`.
 - Media-core import, project store, task, cache, derivative, or FFmpeg wrapper changes: `cargo test --manifest-path src-tauri/Cargo.toml -p linglux-media-core`.
-- Packaging, window, bundle, permission, asset protocol, or release changes: `npm run tauri:build`.
+- Packaging, window, bundle, permission, asset protocol, or release changes: `pnpm tauri:build`.
 - Frontend and Tauri bridge changes: validate both sides with the relevant frontend build and Rust check.
 - FFmpeg export or derivative behavior changes: also exercise the path on a machine where `ffmpeg` and `ffprobe` are discoverable.
 - Documentation-only changes: no build is required unless executable commands, configuration assumptions, or generated examples changed.
@@ -173,6 +182,10 @@ Task states include `queued`, `running`, `cancelling`, `cancelled`, `succeeded`,
 
 Exports run on a single export worker. Import and derivative work share media workers. Keep long-running work observable through task events and cancellable through task handles.
 
+Storyboard encoding uses the media worker pool and accepts only managed source images inside the current project. Preserve crop bounds validation, the 240-frame/120-FPS limits, row-major ordering, temporary-file cleanup, and FFmpeg cancellation behavior.
+
+TTS setup and synthesis share a dedicated single worker. The first implementation is macOS Apple Silicon-only, installs pinned CosyVoice/runtime revisions under `media-core/tts/`, and imports only completed WAV output through the normal managed-media path. Do not enable voice cloning or accept arbitrary runtime/model paths without an explicit security and product review.
+
 Derivative generation should prefer cached artifacts where valid and should report warnings for unavailable FFmpeg, skipped streams, unsupported media, or fallback behavior. Do not make cache misses or derivative failures corrupt the project manifest.
 
 Import should keep the clonefile/hard-link/copy fallback strategy and progress updates. Keep supported extension checks centralized in media-core.
@@ -183,30 +196,39 @@ FFmpeg and FFprobe are discovered from PATH and common system locations. If pack
 
 Register frontend-callable commands in `src-tauri/src/lib.rs` with `#[tauri::command]` and `tauri::generate_handler!`.
 
-Current commands are:
+Current commands include:
 
 - `create_video_plan`
-- `load_api_key_settings`
-- `save_api_key_settings`
-- `clear_api_key_settings`
+- `load_agent_provider_settings`
+- `save_agent_provider_settings`
+- `clear_agent_provider_settings`
+- `start_editor_agent_turn`
+- `cancel_editor_agent_turn`
+- `load_agent_conversation`
+- `update_agent_plan_state`
+- `clear_agent_conversation`
 - `create_edit_session`
 - `load_edit_project`
 - `save_edit_project`
 - `start_import_media`
+- `start_storyboard_to_video`
 - `start_media_derivatives`
 - `start_export`
 - `cancel_media_task`
 - `get_media_task`
 - `list_media_tasks`
+- `get_tts_status`
+- `start_tts_setup`
+- `start_speech_synthesis`
 - `reveal_export_file`
 
 When changing editor request/response payloads, keep `src/types/editor.ts`, frontend invoke calls, and Rust serde structs compatible. If a new frontend field is required, either mirror it in Rust or make the bridge tolerant with explicit defaults.
 
 Large media bytes should stay out of Tauri JSON IPC. Send paths or small typed payloads, use media-core for local file ownership, and use Tauri asset conversion for renderable media URLs.
 
-API key settings are sensitive. Never log full keys, render full keys outside intentional input fields, or include keys in task logs, project files, artifacts, export records, manifests, or error messages. Mask keys in summaries.
+API key settings are sensitive. Keys are stored through the Rust host in the OS credential vault and must never be returned to the WebView after saving. Never log full keys, render full keys outside intentional input fields, or include keys in task logs, project files, Agent conversations, artifacts, export records, manifests, or error messages. Mask keys in summaries.
 
-Desktop API key settings are persisted under the Tauri app config directory as `api-key-settings.json`; web preview falls back to `localStorage` with `linglux-api-key-settings`. This is prototype storage, not final production secret storage.
+Desktop provider metadata is persisted under the Tauri app config directory while API keys are stored in the operating-system credential vault and never returned to the WebView. A legacy plaintext key in `api-key-settings.json` is migrated out of that JSON file; if the vault is unavailable, a newly entered key is session-only. Web preview does not call Agent providers or retain a usable provider key.
 
 Avoid expanding `src-tauri/capabilities/default.json` unless a user-visible feature genuinely needs it. Add the narrowest possible permission. File system, shell, network, dialog, asset protocol, and secret-storage capabilities must be justified by product value and scoped tightly.
 
@@ -226,7 +248,7 @@ Prefer stable application capabilities exposed through small Rust commands or se
 
 ## Dependency and Config Policy
 
-Use npm, not pnpm or yarn, unless the project intentionally changes package managers. Keep `package-lock.json` in sync with `package.json`.
+Use pnpm, not npm or yarn, unless the project intentionally changes package managers. Keep `pnpm-lock.yaml` in sync with `package.json`.
 
 Do not add new dependencies for simple UI, state, timing, formatting, or data transformations that the existing stack can handle. If adding a dependency, explain why it is worth the desktop bundle size and maintenance cost.
 

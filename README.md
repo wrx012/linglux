@@ -15,7 +15,7 @@ Linglux is an AI agent for video creation, editing, enhancement, and automation,
 For web development:
 
 - Node.js 20 or later
-- npm
+- pnpm 11 or later
 
 For desktop development with Tauri:
 
@@ -90,35 +90,41 @@ If you build MSI installers on Windows and see errors around `light.exe`, enable
 Install dependencies:
 
 ```sh
-npm install
+pnpm install
 ```
 
 Run the web UI only:
 
 ```sh
-npm run dev
+pnpm dev
 ```
 
 Run the desktop app:
 
 ```sh
-npm run tauri:dev
+pnpm tauri:dev
 ```
 
-Tauri starts the Vite dev server automatically from `src-tauri/tauri.conf.json`, so you do not need to run `npm run dev` separately before `npm run tauri:dev`.
+Tauri starts the Vite dev server automatically from `src-tauri/tauri.conf.json`, so you do not need to run `pnpm dev` separately before `pnpm tauri:dev`.
 
 ## Build
 
 Build the frontend:
 
 ```sh
-npm run build
+pnpm build
 ```
 
 Build the desktop app:
 
 ```sh
-npm run tauri:build
+pnpm tauri:build
+```
+
+Run frontend unit tests:
+
+```sh
+pnpm test
 ```
 
 Build output:
@@ -126,11 +132,44 @@ Build output:
 - Frontend: `dist/`
 - Tauri: `src-tauri/target/`
 
+## AI Editing Agent
+
+The editor includes a right-side Linglux Agent panel in the desktop app. It translates natural-language instructions into a typed edit plan, shows the plan for confirmation, and then applies it directly to project/timeline data. It does not read the screen or control the mouse.
+
+To configure it:
+
+1. Open **Settings → Model Service**.
+2. Choose DeepSeek, OpenAI, OpenRouter, or a custom HTTPS OpenAI-compatible endpoint.
+3. Confirm the Base URL and editable chat model ID.
+4. Enter an API key. Desktop keys are stored by the Rust host in the operating-system credential vault and are never returned to the WebView. If the vault is unavailable, the key remains in memory for the current app session only.
+
+DeepSeek defaults to `https://api.deepseek.com` and `deepseek-v4-flash`. Provider calls and persistent chat are desktop-only; the web preview renders the UI without calling a remote model.
+
+Example instruction:
+
+```text
+把 x.mp4 加到主视频轨，1:03 前面的不要，3:02 后面的不要
+```
+
+The Agent proposes keeping source range `01:03–03:02`. After confirmation, the resulting edit is one undoable timeline transaction. Conversation history is stored in the project package as `agent-conversation.json` and is not included in export manifests.
+
+## Storyboard Image to Video
+
+The desktop editor can turn a managed storyboard/contact-sheet image into a short MP4. Select an imported image, open the storyboard animation dialog, verify the automatically detected grid and crop boxes, then choose the frame count and FPS. Linglux crops frames in row-major order, normalizes them to a common even-sized canvas, encodes H.264 with FFmpeg, and adds the result back to the project media bin.
+
+The source image must already be imported into the current project. A task accepts 1–240 frames and 1–120 FPS, is cancellable, and requires a discoverable local `ffmpeg` executable.
+
+## Local AI Voiceover
+
+AI voiceover is currently available only in the desktop app on macOS Apple Silicon. Open the editor's audio panel, install the local model when prompted (about 3.4 GB including runtime and model), then choose the built-in Mandarin male or female voice. Once installed, synthesis runs offline and generated WAV files are managed with the project like imported audio.
+
+The feature uses [CosyVoice-300M-Instruct](https://github.com/QwenAudio/CosyVoice), distributed under Apache License 2.0. Linglux pins the runtime, source, and model revisions instead of following floating releases. Initial setup requires network access; voice cloning and browser synthesis are not enabled.
+
 ## Troubleshooting
 
 ### `failed to run 'cargo metadata'`
 
-If `npm run tauri:dev` prints an error like this:
+If `pnpm tauri:dev` prints an error like this:
 
 ```text
 failed to run command cargo metadata --no-deps --format-version 1: No such file or directory
@@ -160,18 +199,18 @@ winget install --id Rustlang.Rustup -e
 Then open a new terminal and run:
 
 ```sh
-npm run tauri:dev
+pnpm tauri:dev
 ```
 
-### npm cache permission errors
+### pnpm store permission errors
 
-If `npm install` reports a cache permission error, you can use a temporary cache directory:
+If `pnpm install` reports a store permission error, you can use a temporary store directory:
 
 ```sh
-npm_config_cache=/private/tmp/linglux-npm-cache npm install
+pnpm install --store-dir /private/tmp/linglux-pnpm-store
 ```
 
-For a long-term fix, repair the permissions of your local npm cache directory.
+For a long-term fix, repair the permissions of the store reported by `pnpm store path`.
 
 ## References
 

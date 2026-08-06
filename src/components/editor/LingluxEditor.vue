@@ -14,16 +14,26 @@ import {
   Scissors,
   Settings,
   SlidersHorizontal,
+  Sparkles,
   Undo2,
   Video,
   X,
 } from "@lucide/vue";
+import AgentChatPanel from "./AgentChatPanel.vue";
 import ExportDialog from "./ExportDialog.vue";
 import InspectorPanel from "./InspectorPanel.vue";
 import MediaBin from "./MediaBin.vue";
 import PreviewMonitor from "./PreviewMonitor.vue";
+import StoryboardToVideoDialog, { type StoryboardSource } from "./StoryboardToVideoDialog.vue";
 import TimelinePanel from "./TimelinePanel.vue";
 import lingluxLogo from "../../assets/linglux-logo-no-text.png";
+import type {
+  AgentConversation,
+  AgentEditPlan,
+  AgentTaskEvent,
+  AgentTaskSnapshot,
+  AgentTurnResult,
+} from "../../types/agent";
 import type {
   AudioBeatMarker,
   AudioTrackPreset,
@@ -37,10 +47,16 @@ import type {
   MediaDerivatives,
   MediaTaskEvent,
   MediaTaskSnapshot,
+  StoryboardToVideoRequest,
+  StoryboardToVideoResult,
+  SpeechSynthesisRequest,
   TextTemplatePreset,
   TimelineClip,
   TimelineTrack,
   TimelineTrackType,
+  TtsEmotion,
+  TtsStatus,
+  TtsVoice,
 } from "../../types/editor";
 import {
   calculateProjectDuration,
@@ -55,6 +71,12 @@ import {
   TIMELINE_MAX_SCALE,
   TIMELINE_MIN_SCALE,
 } from "../../lib/editorProject";
+import {
+  createAgentProjectSnapshot,
+  previewAgentEditPlan,
+} from "../../lib/editorAgent";
+import { planVideoBeatMarkerAlignment } from "../../lib/beatMarkerAlignment";
+import { createSpeechAssetName, validateTtsText } from "../../lib/tts";
 
 type EditorShortcutAction = "togglePlayback" | "splitClip" | "scrollTimelineLeft" | "scrollTimelineRight";
 type ShortcutModifier = "Alt" | "Control" | "Meta" | "Shift";
@@ -116,11 +138,21 @@ const libraryPreviewAssetId = ref("");
 const playhead = ref(0);
 const timelineScale = ref(1);
 const snapEnabled = ref(true);
+const clipTrimSnapGuideTime = ref<number>();
 const isPlaying = ref(false);
 const isPreviewVideoClockActive = ref(false);
 const isPlayheadScrubbing = ref(false);
 const isExportDialogOpen = ref(false);
 const isInspectorOpen = ref(false);
+const isAgentPanelOpen = ref(false);
+const isAgentDrawerViewport = ref(false);
+const isAgentRunning = ref(false);
+const agentStatus = ref("");
+const agentError = ref("");
+const activeAgentTaskId = ref("");
+const editorVersion = ref(Date.now());
+const appliedAgentPlanIds = new Set<string>();
+const agentConversation = ref<AgentConversation>(createEmptyAgentConversation(project.value.id));
 const isShortcutMenuOpen = ref(false);
 const editorShortcuts = ref<EditorShortcutMap>(loadEditorShortcuts());
 const editingShortcutAction = ref<EditorShortcutAction | null>(null);
@@ -139,6 +171,27 @@ const completedExportResult = ref<EditorExportResult | null>(null);
 const activeExportTaskId = ref("");
 const importTaskStatus = ref("");
 const activeImportTaskIds = ref<string[]>([]);
+const ttsStatus = ref<TtsStatus>({
+  supported: false,
+  state: "notInstalled",
+  runtimeInstalled: false,
+  modelInstalled: false,
+  requiredBytes: 3_400_000_000,
+  voices: [],
+  error: "仅桌面版 macOS Apple Silicon 支持。",
+});
+const isTtsBusy = ref(false);
+const ttsProgress = ref(0);
+const ttsTaskStatus = ref("");
+const ttsError = ref("");
+const activeTtsTaskId = ref("");
+const isStoryboardDialogOpen = ref(false);
+const storyboardSource = ref<StoryboardSource>();
+const isStoryboardGenerating = ref(false);
+const storyboardProgress = ref(0);
+const storyboardStatus = ref("");
+const storyboardError = ref("");
+const activeStoryboardTaskId = ref("");
 const saveState = ref("已保存");
 const history = ref<ProjectHistoryEntry[]>([]);
 const future = ref<ProjectHistoryEntry[]>([]);
@@ -155,6 +208,17 @@ const AUTO_BEAT_MAX_MARKERS = 128;
 const HISTORY_MAX_ENTRIES = 128;
 const HISTORY_MAX_ESTIMATED_BYTES = 8 * 1024 * 1024;
 const HISTORY_COALESCE_WINDOW_MS = 650;
+const MIN_TRIMMED_CLIP_DURATION_SECONDS = 0.5;
+let activeClipTrim: {
+  clipId: string;
+  edge: "start" | "end";
+  start: number;
+  duration: number;
+  trimStart: number;
+  trimEnd: number;
+  beatMarkers?: AudioBeatMarker[];
+  changed: boolean;
+} | undefined;
 let playbackFrameId: number | undefined;
 let playbackLastTimestamp: number | undefined;
 let unlistenNativeDragDrop: (() => void) | undefined;
@@ -242,6 +306,7 @@ interface TimelineDropPreview {
   clipType: TimelineTrackType;
   isCompatible: boolean;
   isSnapped: boolean;
+  snapGuideTime?: number;
   label: string;
 }
 
@@ -270,6 +335,7 @@ const isTimelineEmpty = computed(() => timelineClips.value.length === 0);
 const timelineAssetIds = computed(() => [...new Set(timelineClips.value.map((clip) => clip.assetId))]);
 const selectedClipIsText = computed(() => selectedClip.value?.type === "caption");
 const isInspectorDrawerVisible = computed(() => isInspectorOpen.value && (!selectedClipIsText.value || isNarrowViewport.value));
+const isAgentPanelDocked = computed(() => isAgentPanelOpen.value && !isAgentDrawerViewport.value);
 const selectedPreset = computed(() => exportPresets.find((preset) => preset.id === selectedPresetId.value) ?? exportPresets[0]);
 const completedExportOutputPath = computed(() => completedExportResult.value?.outputPath ?? "");
 const canUndo = computed(() => history.value.length > 0);
@@ -391,6 +457,7 @@ const assetDragPreview = computed<TimelineDropPreview | undefined>(() => {
       : clipTypeForAsset(asset)),
     isCompatible,
     isSnapped: resolvedPlacement.isSnapped,
+    snapGuideTime: resolvedPlacement.snapGuideTime,
     label: draggedClip?.name ?? asset.name,
   };
 });
@@ -440,16 +507,25 @@ const clipDragStatus = computed(() => {
   return `${formatTimecode(assetDragPreview.value.start)} · 松开移动`;
 });
 const previewWorkspaceLayoutClass = computed(() =>
-  selectedClipIsText.value
+  isAgentPanelDocked.value
+    ? "grid-cols-[minmax(280px,320px)_minmax(0,1fr)_minmax(320px,360px)] max-[1380px]:grid-cols-[280px_minmax(0,1fr)_320px] max-[900px]:grid-cols-1 max-[900px]:grid-rows-[260px_420px]"
+    : selectedClipIsText.value
     ? "grid-cols-[minmax(300px,340px)_minmax(0,1fr)_minmax(300px,340px)] max-[1380px]:grid-cols-[minmax(280px,320px)_minmax(0,1fr)_minmax(280px,320px)] max-[900px]:grid-cols-1 max-[900px]:grid-rows-[260px_420px]"
     : "grid-cols-[minmax(300px,340px)_minmax(0,1fr)] max-[1220px]:grid-cols-[minmax(280px,320px)_minmax(0,1fr)] max-[900px]:grid-cols-1 max-[900px]:grid-rows-[260px_420px]",
 );
 
 let viewportQuery: MediaQueryList | undefined;
+let agentDrawerViewportQuery: MediaQueryList | undefined;
+let agentTurnGeneration = 0;
 
 watch(
   () => props.session,
   (session) => {
+    agentTurnGeneration += 1;
+    const previousAgentTaskId = activeAgentTaskId.value;
+    if (previousAgentTaskId && isTauri()) {
+      void invoke("cancel_editor_agent_turn", { taskId: previousAgentTaskId }).catch(() => false);
+    }
     stopPlaybackLoop();
     isPlaying.value = false;
     isPreviewVideoClockActive.value = false;
@@ -472,8 +548,16 @@ watch(
     history.value = [];
     future.value = [];
     pendingHistoryCapture = undefined;
+    editorVersion.value = Date.now();
+    appliedAgentPlanIds.clear();
+    agentConversation.value = createEmptyAgentConversation(project.value.id);
+    agentError.value = "";
+    agentStatus.value = "";
+    activeAgentTaskId.value = "";
+    isAgentRunning.value = false;
     saveState.value = session.isDirty ? "未保存" : "已保存";
     isInspectorOpen.value = false;
+    void loadAgentConversation();
   },
   { deep: true },
 );
@@ -482,10 +566,14 @@ onMounted(() => {
   viewportQuery = window.matchMedia("(max-width: 900px)");
   isNarrowViewport.value = viewportQuery.matches;
   viewportQuery.addEventListener("change", handleViewportQueryChange);
+  agentDrawerViewportQuery = window.matchMedia("(max-width: 1280px)");
+  isAgentDrawerViewport.value = agentDrawerViewportQuery.matches;
+  agentDrawerViewportQuery.addEventListener("change", handleAgentDrawerViewportQueryChange);
   window.addEventListener("keydown", handleEditorKeydown);
   window.addEventListener("keyup", handleEditorKeyup);
 
   if (isTauri()) {
+    void loadTtsStatus();
     void getCurrentWebview()
       .onDragDropEvent((event) => {
         if (event.payload.type === "drop" && event.payload.paths.length > 0) {
@@ -500,15 +588,22 @@ onMounted(() => {
   if (selectedClip.value) {
     ensureManagedVideoProxy(selectedClip.value.assetId);
   }
+
+  void loadAgentConversation();
 });
 
 onUnmounted(() => {
+  agentTurnGeneration += 1;
+  if (activeAgentTaskId.value && isTauri()) {
+    void invoke("cancel_editor_agent_turn", { taskId: activeAgentTaskId.value }).catch(() => false);
+  }
   stopPlaybackLoop();
   cancelAssetPointerDrag();
   cleanupImportedObjectUrls();
   unlistenNativeDragDrop?.();
   unlistenNativeDragDrop = undefined;
   viewportQuery?.removeEventListener("change", handleViewportQueryChange);
+  agentDrawerViewportQuery?.removeEventListener("change", handleAgentDrawerViewportQueryChange);
   window.removeEventListener("keydown", handleEditorKeydown);
   window.removeEventListener("keyup", handleEditorKeyup);
 });
@@ -563,6 +658,10 @@ function handleViewportQueryChange(event: MediaQueryListEvent) {
   if (event.matches && selectedClip.value?.type === "caption") {
     isInspectorOpen.value = true;
   }
+}
+
+function handleAgentDrawerViewportQueryChange(event: MediaQueryListEvent) {
+  isAgentDrawerViewport.value = event.matches;
 }
 
 function setSingleSelectedAsset(assetId: string) {
@@ -696,8 +795,226 @@ function deleteAssets(assetIds: string[]) {
   playhead.value = clamp(playhead.value, 0, project.value.duration);
 }
 
+function createEmptyAgentConversation(projectId: string): AgentConversation {
+  return {
+    schemaVersion: 1,
+    projectId,
+    messages: [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function loadAgentConversation() {
+  if (!isTauri()) {
+    agentConversation.value = createEmptyAgentConversation(project.value.id);
+    return;
+  }
+
+  try {
+    agentConversation.value = await invoke<AgentConversation>("load_agent_conversation", {
+      projectId: project.value.id,
+    });
+  } catch (error) {
+    agentError.value = normalizeExportError(error);
+  }
+}
+
+function openAgentPanel() {
+  isAgentPanelOpen.value = true;
+  agentError.value = "";
+}
+
+function closeAgentPanel() {
+  isAgentPanelOpen.value = false;
+}
+
+function runAgentTurn(prompt: string): Promise<AgentTurnResult> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const onEvent = new Channel<AgentTaskEvent>();
+
+    onEvent.onmessage = ({ task }) => {
+      agentStatus.value = task.status;
+      activeAgentTaskId.value = task.id;
+
+      if (settled) {
+        return;
+      }
+
+      if (task.state === "succeeded") {
+        settled = true;
+
+        if (!task.result) {
+          reject(new Error("Agent 已完成，但没有返回结果。"));
+        } else {
+          resolve(task.result);
+        }
+      } else if (task.state === "failed") {
+        settled = true;
+        reject(new Error(task.error || "Agent 请求失败。"));
+      } else if (task.state === "cancelled") {
+        settled = true;
+        reject(new Error("Agent 请求已取消。"));
+      }
+    };
+
+    const request = {
+      prompt,
+      project: createAgentProjectSnapshot({
+        project: project.value,
+        editorVersion: editorVersion.value,
+        playhead: playhead.value,
+        selectedClipId: selectedClipId.value,
+        selectedAssetIds: selectedAssetIds.value,
+      }),
+    };
+
+    void invoke<AgentTaskSnapshot>("start_editor_agent_turn", {
+      request,
+      onEvent,
+    })
+      .then((task) => {
+        activeAgentTaskId.value = task.id;
+        agentStatus.value = task.status;
+      })
+      .catch((error) => {
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
+      });
+  });
+}
+
+async function sendAgentPrompt(prompt: string) {
+  if (isAgentRunning.value || !isTauri()) {
+    return;
+  }
+
+  const turnGeneration = ++agentTurnGeneration;
+  const turnProjectId = project.value.id;
+  isAgentPanelOpen.value = true;
+  isAgentRunning.value = true;
+  agentError.value = "";
+  agentStatus.value = "正在提交剪辑指令";
+  agentConversation.value.messages.push({
+    id: `local-user-${Date.now()}`,
+    role: "user",
+    content: prompt,
+    createdAt: new Date().toISOString(),
+  });
+
+  try {
+    const result = await runAgentTurn(prompt);
+
+    if (turnGeneration !== agentTurnGeneration || project.value.id !== turnProjectId) {
+      return;
+    }
+
+    agentConversation.value = result.conversation;
+
+    if (result.plan) {
+      previewAgentEditPlan(project.value, result.plan, editorVersion.value);
+    }
+  } catch (error) {
+    if (turnGeneration !== agentTurnGeneration || project.value.id !== turnProjectId) {
+      return;
+    }
+
+    agentError.value = normalizeExportError(error);
+    await loadAgentConversation();
+  } finally {
+    if (turnGeneration === agentTurnGeneration && project.value.id === turnProjectId) {
+      isAgentRunning.value = false;
+      agentStatus.value = "";
+      activeAgentTaskId.value = "";
+    }
+  }
+}
+
+async function cancelAgentTurn() {
+  if (!activeAgentTaskId.value) {
+    return;
+  }
+
+  agentStatus.value = "正在取消 Agent 请求";
+  await invoke<boolean>("cancel_editor_agent_turn", {
+    taskId: activeAgentTaskId.value,
+  }).catch(() => false);
+}
+
+async function setAgentPlanState(plan: AgentEditPlan, state: "applied" | "rejected" | "stale") {
+  const message = agentConversation.value.messages.find((item) => item.plan?.id === plan.id);
+  if (message) {
+    message.planState = state;
+  }
+
+  if (!isTauri()) {
+    return;
+  }
+
+  try {
+    agentConversation.value = await invoke<AgentConversation>("update_agent_plan_state", {
+      projectId: project.value.id,
+      planId: plan.id,
+      state,
+    });
+  } catch (error) {
+    agentError.value = normalizeExportError(error);
+  }
+}
+
+function applyAgentPlan(plan: AgentEditPlan) {
+  if (appliedAgentPlanIds.has(plan.id)) {
+    agentError.value = "该计划已经应用，不能重复执行。";
+    return;
+  }
+
+  let preview;
+
+  try {
+    preview = previewAgentEditPlan(project.value, plan, editorVersion.value);
+  } catch (error) {
+    agentError.value = normalizeExportError(error);
+    void setAgentPlanState(plan, "stale");
+    return;
+  }
+
+  pushHistory({ wholeTrackIds: preview.affectedTrackIds });
+  project.value = preview.project;
+  appliedAgentPlanIds.add(plan.id);
+  libraryPreviewAssetId.value = "";
+  clearSelectedAssets();
+  selectedClipId.value = preview.selectedClipId ?? project.value.tracks.flatMap((track) => track.clips)[0]?.id ?? "";
+  const clip = findClip(selectedClipId.value);
+  playhead.value = clip?.start ?? clamp(playhead.value, 0, project.value.duration);
+  markDirty();
+  agentError.value = "";
+  void setAgentPlanState(plan, "applied");
+}
+
+function rejectAgentPlan(plan: AgentEditPlan) {
+  void setAgentPlanState(plan, "rejected");
+}
+
+async function clearAgentConversation() {
+  if (!isTauri()) {
+    agentConversation.value = createEmptyAgentConversation(project.value.id);
+    return;
+  }
+
+  try {
+    agentConversation.value = await invoke<AgentConversation>("clear_agent_conversation", {
+      projectId: project.value.id,
+    });
+    agentError.value = "";
+  } catch (error) {
+    agentError.value = normalizeExportError(error);
+  }
+}
+
 function runMediaTask<TResult>(
-  command: "start_import_media" | "start_media_derivatives" | "start_export",
+  command: "start_import_media" | "start_storyboard_to_video" | "start_media_derivatives" | "start_export" | "start_tts_setup" | "start_speech_synthesis",
   args: Record<string, unknown>,
   onUpdate?: (task: MediaTaskSnapshot<TResult>) => void,
 ): Promise<TResult> {
@@ -747,6 +1064,183 @@ function runMediaTask<TResult>(
         }
       });
   });
+}
+
+async function loadTtsStatus() {
+  if (!isTauri()) return;
+  try {
+    ttsStatus.value = await invoke<TtsStatus>("get_tts_status");
+  } catch (error) {
+    ttsStatus.value = { ...ttsStatus.value, supported: true, state: "error", error: normalizeExportError(error) };
+  }
+}
+
+async function setupTts() {
+  if (!isTauri() || isTtsBusy.value) return;
+  isTtsBusy.value = true;
+  ttsError.value = "";
+  ttsProgress.value = 0;
+  ttsTaskStatus.value = "准备安装本地语音模型";
+  try {
+    ttsStatus.value = await runMediaTask<TtsStatus>("start_tts_setup", {}, updateTtsTask);
+    ttsTaskStatus.value = "本地语音模型已就绪";
+  } catch (error) {
+    ttsError.value = normalizeExportError(error);
+    await loadTtsStatus();
+  } finally {
+    isTtsBusy.value = false;
+    activeTtsTaskId.value = "";
+  }
+}
+
+async function generateSpeech(request: { text: string; voice: TtsVoice; emotion: TtsEmotion; speed: number }) {
+  const validationError = validateTtsText(request.text);
+  if (!isTauri() || isTtsBusy.value || validationError) {
+    ttsError.value = validationError;
+    return;
+  }
+  isTtsBusy.value = true;
+  ttsError.value = "";
+  ttsProgress.value = 0;
+  ttsTaskStatus.value = "准备生成配音";
+  try {
+    const speechRequest: SpeechSynthesisRequest = { projectId: project.value.id, ...request };
+    const imported = await runMediaTask<ImportedMediaFile>("start_speech_synthesis", { request: speechRequest }, updateTtsTask);
+    addGeneratedSpeechToProject(imported, request.text);
+    ttsTaskStatus.value = "配音已添加到时间线";
+  } catch (error) {
+    ttsError.value = normalizeExportError(error);
+  } finally {
+    isTtsBusy.value = false;
+    activeTtsTaskId.value = "";
+  }
+}
+
+function updateTtsTask(task: MediaTaskSnapshot<unknown>) {
+  activeTtsTaskId.value = task.state === "queued" || task.state === "running" || task.state === "cancelling" ? task.id : "";
+  ttsProgress.value = task.progress;
+  ttsTaskStatus.value = `${task.status}${task.progress > 0 ? ` ${Math.round(task.progress)}%` : ""}`;
+}
+
+async function cancelTts() {
+  if (!activeTtsTaskId.value) return;
+  ttsTaskStatus.value = "正在取消";
+  try {
+    await invoke("cancel_media_task", { taskId: activeTtsTaskId.value });
+  } catch (error) {
+    ttsError.value = normalizeExportError(error);
+  }
+}
+
+function addGeneratedSpeechToProject(imported: ImportedMediaFile, text: string) {
+  const context = createManagedImportedAsset(imported, 0);
+  if (!context) throw new Error("生成的配音格式不受支持。");
+  const asset = context.asset;
+  asset.name = createSpeechAssetName(text, project.value.assets.map((item) => item.name));
+  let track = project.value.tracks.find((item) => item.type === "audio");
+  const trackId = track?.id ?? `track-audio-${Date.now()}`;
+  pushHistory({ assetIds: [asset.id], captureAssetOrder: true, wholeTrackIds: [trackId] });
+  if (!track) {
+    track = { id: trackId, type: "audio", label: "音频轨", muted: false, visible: true, mediaEnabled: true, locked: false, clips: [] };
+    project.value.tracks.push(track);
+  }
+  project.value.assets.push(asset);
+  const start = clamp(playhead.value, 0, Math.max(project.value.duration, 0));
+  const clip = createTimelineClip({
+    id: `clip-${asset.id}-${Date.now()}`,
+    assetId: asset.id,
+    trackId: track.id,
+    name: asset.name,
+    type: "audio",
+    start,
+    duration: asset.duration,
+    volume: 0.82,
+  });
+  track.clips.push(clip);
+  track.clips.sort((left, right) => left.start - right.start);
+  selectedClipId.value = clip.id;
+  clearSelectedAssets();
+  libraryPreviewAssetId.value = "";
+  markDirty();
+  void hydrateManagedMediaDerivative(asset, { generateWaveform: true, generateProxy: false }).catch((error) => {
+    ttsError.value = `配音已添加，但波形生成失败：${normalizeExportError(error)}`;
+  });
+}
+
+async function prepareStoryboardConversion(path: string) {
+  if (!isTauri() || !path) return;
+  storyboardError.value = "";
+  storyboardStatus.value = "正在把分镜图导入当前工程";
+  try {
+    const imported = await runMediaTask<ImportedMediaFile[]>(
+      "start_import_media",
+      { projectId: project.value.id, paths: [path] },
+      (task) => {
+        trackActiveImportTask(task);
+        storyboardStatus.value = `${task.status} ${Math.round(task.progress)}%`;
+      },
+    );
+    const source = imported[0];
+    if (!source) throw new Error("没有找到可转换的分镜图片。");
+    storyboardSource.value = { name: source.sourceFileName, managedPath: source.managedPath, url: convertFileSrc(source.managedPath) };
+    storyboardProgress.value = 0;
+    storyboardStatus.value = "自动识别画格";
+    isStoryboardDialogOpen.value = true;
+  } catch (error) {
+    shortcutStatusTone.value = "warning";
+    shortcutStatusMessage.value = normalizeExportError(error);
+  }
+}
+
+async function generateStoryboardVideo(request: StoryboardToVideoRequest) {
+  if (!isTauri() || isStoryboardGenerating.value) return;
+  isStoryboardGenerating.value = true;
+  storyboardProgress.value = 0;
+  storyboardError.value = "";
+  storyboardStatus.value = "准备生成分镜视频";
+  try {
+    const result = await runMediaTask<StoryboardToVideoResult>(
+      "start_storyboard_to_video",
+      { request },
+      (task) => {
+        activeStoryboardTaskId.value = ["cancelled", "succeeded", "failed", "interrupted"].includes(task.state) ? "" : task.id;
+        storyboardProgress.value = task.progress;
+        storyboardStatus.value = task.status;
+      },
+    );
+    const asset: MediaAsset = {
+      id: `asset-storyboard-${Date.now()}-${Math.round(Math.random() * 100000)}`,
+      type: "video",
+      name: result.fileName,
+      url: convertFileSrc(result.managedPath),
+      filePath: result.managedPath,
+      contentFingerprint: result.fingerprint,
+      duration: result.duration,
+      width: result.width,
+      height: result.height,
+      createdAt: new Date().toISOString(),
+    };
+    pushHistory({ assetIds: [asset.id], captureAssetOrder: true });
+    project.value.assets.push(asset);
+    setSingleSelectedAsset(asset.id);
+    markDirty();
+    void hydrateManagedMediaDerivatives([{ asset }]);
+    shortcutStatusTone.value = "success";
+    shortcutStatusMessage.value = `已生成 ${result.frameCount} 帧视频并加入素材库`;
+    isStoryboardDialogOpen.value = false;
+    storyboardSource.value = undefined;
+  } catch (error) {
+    storyboardError.value = normalizeExportError(error);
+  } finally {
+    isStoryboardGenerating.value = false;
+    activeStoryboardTaskId.value = "";
+  }
+}
+
+async function cancelStoryboardGeneration() {
+  if (!activeStoryboardTaskId.value) return;
+  storyboardStatus.value = "正在取消";
+  await invoke("cancel_media_task", { taskId: activeStoryboardTaskId.value }).catch(() => undefined);
 }
 
 async function importMediaFiles(files: File[]) {
@@ -1421,6 +1915,7 @@ function markDirty() {
   }
 
   project.value.updatedAt = new Date().toISOString();
+  editorVersion.value += 1;
   saveState.value = "未保存";
   commitPendingHistory();
 }
@@ -1761,14 +2256,16 @@ function resolveAssetPlacementStart(seconds: number) {
   return {
     start,
     isSnapped: snapEnabled.value && Math.abs(start - rawStart) > 0.001,
+    snapGuideTime: undefined,
   };
 }
 
 function resolveClipPlacementStart(clipId: string, targetTrackId: string, seconds: number) {
   const rawStart = Math.max(0, seconds);
   const targetTrack = project.value.tracks.find((track) => track.id === targetTrackId);
+  const draggedClip = findClip(clipId);
 
-  if (!targetTrack) {
+  if (!targetTrack || !draggedClip) {
     return { start: rawStart, isSnapped: false };
   }
 
@@ -1791,17 +2288,42 @@ function resolveClipPlacementStart(clipId: string, targetTrackId: string, second
   }
 
   const snapThreshold = 10 / (TIMELINE_BASE_PIXELS_PER_SECOND * timelineScale.value);
-  const snapCandidates = [
-    0,
-    playhead.value,
-    ...otherClips.flatMap((clip) => [clip.start, clip.start + clip.duration]),
+  const clipBoundaryCandidates = project.value.tracks.flatMap((track) =>
+    track.clips
+      .filter((clip) => clip.id !== clipId)
+      .flatMap((clip) => [clip.start, clip.start + clip.duration]),
+  );
+  const draggedEdges = [
+    { time: rawStart, offset: 0 },
+    { time: rawStart + draggedClip.duration, offset: draggedClip.duration },
   ];
-  const nearestCandidate = snapCandidates.reduce((nearest, candidate) =>
-    Math.abs(candidate - rawStart) < Math.abs(nearest - rawStart) ? candidate : nearest,
-  snapCandidates[0]);
+  const nearestBoundaryAlignment = clipBoundaryCandidates
+    .flatMap((candidate) => draggedEdges.map((edge) => ({
+      candidate,
+      distance: Math.abs(candidate - edge.time),
+      start: candidate - edge.offset,
+    })))
+    .filter((alignment) => alignment.start >= 0)
+    .reduce<{ candidate: number; distance: number; start: number } | undefined>(
+      (nearest, alignment) => !nearest || alignment.distance < nearest.distance ? alignment : nearest,
+      undefined,
+    );
 
-  if (Math.abs(nearestCandidate - rawStart) <= snapThreshold) {
-    return { start: Math.max(0, nearestCandidate), isSnapped: true };
+  if (nearestBoundaryAlignment && nearestBoundaryAlignment.distance <= snapThreshold) {
+    return {
+      start: nearestBoundaryAlignment.start,
+      isSnapped: true,
+      snapGuideTime: nearestBoundaryAlignment.candidate,
+    };
+  }
+
+  const basicSnapCandidates = [0, playhead.value];
+  const nearestBasicCandidate = basicSnapCandidates.reduce((nearest, candidate) =>
+    Math.abs(candidate - rawStart) < Math.abs(nearest - rawStart) ? candidate : nearest,
+  basicSnapCandidates[0]);
+
+  if (Math.abs(nearestBasicCandidate - rawStart) <= snapThreshold) {
+    return { start: Math.max(0, nearestBasicCandidate), isSnapped: true };
   }
 
   return {
@@ -1948,6 +2470,52 @@ function toggleSelectedAudioBeatMarkers() {
 
   selectedClipId.value = clip.id;
   markDirty();
+}
+
+function alignSelectedVideoToBeatMarkers() {
+  const alignment = planVideoBeatMarkerAlignment(
+    project.value,
+    selectedClipId.value,
+    MIN_TRIMMED_CLIP_DURATION_SECONDS,
+  );
+
+  if (!alignment) {
+    return;
+  }
+
+  const clipCaptures = new Map<string, string[]>();
+
+  for (const patch of alignment.patches) {
+    const clipIds = clipCaptures.get(patch.trackId) ?? [];
+    clipIds.push(patch.clipId);
+    clipCaptures.set(patch.trackId, clipIds);
+  }
+
+  pushHistory({
+    clips: [...clipCaptures.entries()].map(([trackId, clipIds]) => ({ trackId, clipIds })),
+  });
+
+  for (const patch of alignment.patches) {
+    const track = project.value.tracks.find((item) => item.id === patch.trackId);
+    const clip = track?.clips.find((item) => item.id === patch.clipId);
+
+    if (!clip) {
+      continue;
+    }
+
+    clip.start = patch.start;
+    clip.duration = patch.duration;
+    clip.trimStart = patch.trimStart;
+    clip.trimEnd = patch.trimEnd;
+
+    if (patch.beatMarkers) {
+      clip.beatMode = "auto";
+      clip.beatMarkers = patch.beatMarkers;
+    }
+  }
+
+  markDirty();
+  playhead.value = clamp(playhead.value, 0, project.value.duration);
 }
 
 function createAudioBeatMarkers(clip: TimelineClip, peaks?: number[], sourceDuration = 0): AudioBeatMarker[] {
@@ -2646,6 +3214,139 @@ function trimClip(clipId: string, edge: "start" | "end") {
   markDirty();
 }
 
+function beginClipTrim(clipId: string, edge: "start" | "end") {
+  const clip = findClip(clipId);
+  const track = clip ? project.value.tracks.find((item) => item.id === clip.trackId) : undefined;
+
+  if (!clip || !track || track.locked) {
+    return;
+  }
+
+  pushHistory(
+    project.value.mainTrackMagnetEnabled && isPrimaryTimelineTrack(track)
+      ? { wholeTrackIds: [track.id] }
+      : { clips: [{ trackId: track.id, clipIds: [clip.id] }] },
+  );
+  activeClipTrim = {
+    clipId,
+    edge,
+    start: clip.start,
+    duration: clip.duration,
+    trimStart: clip.trimStart,
+    trimEnd: clip.trimEnd,
+    beatMarkers: clip.beatMarkers ? cloneHistoryValue(clip.beatMarkers) : undefined,
+    changed: false,
+  };
+  clipTrimSnapGuideTime.value = undefined;
+}
+
+function updateClipTrim(clipId: string, edge: "start" | "end", rawDeltaSeconds: number) {
+  const drag = activeClipTrim;
+  const clip = findClip(clipId);
+  const track = clip ? project.value.tracks.find((item) => item.id === clip.trackId) : undefined;
+
+  if (!drag || drag.clipId !== clipId || drag.edge !== edge || !clip || !track) {
+    return;
+  }
+
+  const speed = Math.max(clip.speed, 0.01);
+  const originalEdgeTime = edge === "start" ? drag.start : drag.start + drag.duration;
+  const rawEdgeTime = originalEdgeTime + rawDeltaSeconds;
+  const snapThreshold = 10 / (TIMELINE_BASE_PIXELS_PER_SECOND * timelineScale.value);
+  const boundaryCandidates = project.value.tracks.flatMap((candidateTrack) =>
+    candidateTrack.clips
+      .filter((candidate) => candidate.id !== clipId)
+      .flatMap((candidate) => [candidate.start, candidate.start + candidate.duration]),
+  );
+  const nearestBoundary = boundaryCandidates.reduce<number | undefined>((nearest, candidate) => {
+    if (nearest === undefined) {
+      return candidate;
+    }
+
+    return Math.abs(candidate - rawEdgeTime) < Math.abs(nearest - rawEdgeTime) ? candidate : nearest;
+  }, undefined);
+  const shouldAlignToBoundary = snapEnabled.value
+    && nearestBoundary !== undefined
+    && Math.abs(nearestBoundary - rawEdgeTime) <= snapThreshold;
+  const snappedDelta = shouldAlignToBoundary
+    ? nearestBoundary - originalEdgeTime
+    : snapEnabled.value
+      ? snapTime(rawDeltaSeconds)
+      : rawDeltaSeconds;
+
+  clipTrimSnapGuideTime.value = shouldAlignToBoundary ? nearestBoundary : undefined;
+
+  if (edge === "start") {
+    const delta = clamp(
+      snappedDelta,
+      -drag.trimStart / speed,
+      drag.duration - MIN_TRIMMED_CLIP_DURATION_SECONDS,
+    );
+    clip.start = drag.start + delta;
+    clip.duration = drag.duration - delta;
+    clip.trimStart = Math.max(0, drag.trimStart + delta * speed);
+    clip.trimEnd = drag.trimEnd;
+
+    if (clipTrimSnapGuideTime.value !== undefined && Math.abs(clip.start - clipTrimSnapGuideTime.value) > 0.001) {
+      clipTrimSnapGuideTime.value = undefined;
+    }
+
+    if (clip.type === "audio" && drag.beatMarkers) {
+      setAudioBeatMarkers(
+        clip,
+        drag.beatMarkers
+          .filter((marker) => marker.time > delta + 0.02)
+          .map((marker) => ({ ...marker, time: marker.time - delta })),
+      );
+    }
+  } else {
+    const delta = clamp(
+      snappedDelta,
+      -(drag.duration - MIN_TRIMMED_CLIP_DURATION_SECONDS),
+      drag.trimEnd / speed,
+    );
+    clip.start = drag.start;
+    clip.duration = drag.duration + delta;
+    clip.trimStart = drag.trimStart;
+    clip.trimEnd = Math.max(0, drag.trimEnd - delta * speed);
+
+    if (
+      clipTrimSnapGuideTime.value !== undefined
+      && Math.abs(clip.start + clip.duration - clipTrimSnapGuideTime.value) > 0.001
+    ) {
+      clipTrimSnapGuideTime.value = undefined;
+    }
+
+    if (clip.type === "audio" && drag.beatMarkers) {
+      setAudioBeatMarkers(clip, drag.beatMarkers);
+    }
+  }
+
+  if (project.value.mainTrackMagnetEnabled && isPrimaryTimelineTrack(track)) {
+    closeTimelineTrackGaps(track);
+  }
+
+  drag.changed = drag.changed || Math.abs(snappedDelta) >= 0.001;
+  selectedClipId.value = clip.id;
+}
+
+function endClipTrim(clipId: string) {
+  const drag = activeClipTrim;
+
+  if (!drag || drag.clipId !== clipId) {
+    return;
+  }
+
+  activeClipTrim = undefined;
+  clipTrimSnapGuideTime.value = undefined;
+
+  if (drag.changed) {
+    markDirty();
+  } else {
+    pendingHistoryCapture = undefined;
+  }
+}
+
 function undo() {
   const entry = history.value.pop();
 
@@ -2780,6 +3481,7 @@ function reorderHistoryEntities<T extends { id: string }>(items: T[], order: str
 function normalizeEditorAfterHistoryChange() {
   project.value.duration = calculateProjectDuration(project.value.tracks);
   project.value.updatedAt = new Date().toISOString();
+  editorVersion.value += 1;
   libraryPreviewAssetId.value = "";
   selectedClipId.value = project.value.tracks.flatMap((track) => track.clips)[0]?.id ?? "";
   if (selectedClipId.value) {
@@ -3956,6 +4658,20 @@ function cleanupImportedObjectUrls() {
             <Save :size="15" />
           </UButton>
         </UTooltip>
+        <UTooltip text="AI 剪辑助手">
+          <UButton
+            color="primary"
+            :variant="isAgentPanelOpen ? 'soft' : 'ghost'"
+            square
+            size="sm"
+            type="button"
+            aria-label="打开 AI 剪辑助手"
+            :aria-pressed="isAgentPanelOpen"
+            @click="isAgentPanelOpen ? closeAgentPanel() : openAgentPanel()"
+          >
+            <Sparkles :size="14" />
+          </UButton>
+        </UTooltip>
         <UPopover
           :open="isShortcutMenuOpen"
           :content="{ side: 'bottom', align: 'end', sideOffset: 8, collisionPadding: 12 }"
@@ -4146,12 +4862,21 @@ function cleanupImportedObjectUrls() {
           :active-asset-id="selectedAssetId"
           :selected-asset-ids="selectedAssetIds"
           :timeline-asset-ids="timelineAssetIds"
+          :tts-status="ttsStatus"
+          :tts-busy="isTtsBusy"
+          :tts-progress="ttsProgress"
+          :tts-task-status="ttsTaskStatus"
+          :tts-error="ttsError"
           @select-asset="selectAsset"
           @select-assets="selectAssets"
           @import-files="importMediaFiles"
           @import-paths="importMediaPaths"
+          @convert-storyboard="prepareStoryboardConversion"
           @add-asset-to-timeline="addAssetToTimeline"
           @add-audio-preset-to-timeline="addAudioPresetToTimeline"
+          @setup-tts="setupTts"
+          @generate-speech="generateSpeech"
+          @cancel-tts="cancelTts"
           @add-text-template-to-timeline="addTextTemplateToTimeline"
           @delete-asset="deleteAsset"
           @delete-assets="deleteAssets"
@@ -4171,8 +4896,25 @@ function cleanupImportedObjectUrls() {
           @preview-ended="handlePreviewEnded"
           @select-caption-clip="selectPreviewCaptionClip"
         />
+        <AgentChatPanel
+          v-if="isAgentPanelDocked"
+          :project="project"
+          :editor-version="editorVersion"
+          :conversation="agentConversation"
+          :is-running="isAgentRunning"
+          :status="agentStatus"
+          :error="agentError"
+          :is-desktop="isTauri()"
+          @close="closeAgentPanel"
+          @send="sendAgentPrompt"
+          @cancel="cancelAgentTurn"
+          @apply-plan="applyAgentPlan"
+          @reject-plan="rejectAgentPlan"
+          @clear="clearAgentConversation"
+          @open-settings="emit('openSettings')"
+        />
         <InspectorPanel
-          v-if="selectedClipIsText"
+          v-if="selectedClipIsText && !isAgentPanelDocked"
           class="min-h-0 border-l border-[#20242f] max-[900px]:hidden"
           :selected-clip="selectedClip"
           @update-clip="updateClip"
@@ -4190,6 +4932,7 @@ function cleanupImportedObjectUrls() {
         :asset-drag-compatible-track-ids="assetDragCompatibleTrackIds"
         :dragging-clip-id="draggedTimelineClip?.id"
         :drag-preview="assetDragPreview"
+        :trim-snap-guide-time="clipTrimSnapGuideTime"
         :scroll-left-shortcut="editorShortcuts.scrollTimelineLeft"
         :scroll-right-shortcut="editorShortcuts.scrollTimelineRight"
         @select-clip="selectClip"
@@ -4198,6 +4941,9 @@ function cleanupImportedObjectUrls() {
         @end-playhead-scrub="endPlayheadScrub"
         @update-playhead="updatePlayhead"
         @trim-clip="trimClip"
+        @begin-clip-trim="beginClipTrim"
+        @update-clip-trim="updateClipTrim"
+        @end-clip-trim="endClipTrim"
         @split-selected="splitSelectedClip"
         @delete-selected="deleteSelectedClip"
         @delete-clip="deleteClip"
@@ -4206,6 +4952,7 @@ function cleanupImportedObjectUrls() {
         @zoom-in="zoomIn"
         @zoom-out="zoomOut"
         @toggle-audio-beat-markers="toggleSelectedAudioBeatMarkers"
+        @align-selected-video-to-beat-markers="alignSelectedVideoToBeatMarkers"
         @toggle-main-track-magnet="toggleMainTrackMagnet"
         @drop-asset="handleTimelineAssetDrop"
         @update-track="updateTrack"
@@ -4280,6 +5027,34 @@ function cleanupImportedObjectUrls() {
       </template>
     </USlideover>
 
+    <USlideover
+      :open="isAgentPanelOpen && isAgentDrawerViewport"
+      :close="false"
+      title="AI 剪辑助手"
+      class="w-full max-w-[420px] bg-transparent p-0 ring-0 shadow-none"
+      :ui="{ overlay: 'z-[60] bg-black/55 backdrop-blur-sm', content: 'z-[60]' }"
+      @update:open="($event) => { if (!$event) closeAgentPanel() }"
+    >
+      <template #content>
+        <AgentChatPanel
+          :project="project"
+          :editor-version="editorVersion"
+          :conversation="agentConversation"
+          :is-running="isAgentRunning"
+          :status="agentStatus"
+          :error="agentError"
+          :is-desktop="isTauri()"
+          @close="closeAgentPanel"
+          @send="sendAgentPrompt"
+          @cancel="cancelAgentTurn"
+          @apply-plan="applyAgentPlan"
+          @reject-plan="rejectAgentPlan"
+          @clear="clearAgentConversation"
+          @open-settings="emit('openSettings')"
+        />
+      </template>
+    </USlideover>
+
     <ExportDialog
       :open="isExportDialogOpen"
       :presets="exportPresets"
@@ -4297,6 +5072,19 @@ function cleanupImportedObjectUrls() {
       @cancel="cancelExport"
       @open-location="openCompletedExportLocation"
       @finish="completeExport"
+    />
+    <StoryboardToVideoDialog
+      :open="isStoryboardDialogOpen"
+      :source="storyboardSource"
+      :project-id="project.id"
+      :project-fps="project.fps"
+      :is-generating="isStoryboardGenerating"
+      :progress="storyboardProgress"
+      :status="storyboardStatus"
+      :error="storyboardError"
+      @close="isStoryboardDialogOpen = false"
+      @generate="generateStoryboardVideo"
+      @cancel="cancelStoryboardGeneration"
     />
     </UDashboardPanel>
   </UDashboardGroup>

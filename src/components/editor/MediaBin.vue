@@ -4,6 +4,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   Captions,
+  Clapperboard,
   CirclePlay,
   Grid2x2,
   Folder,
@@ -11,6 +12,7 @@ import {
   Image as ImageIcon,
   List,
   Music,
+  Mic2,
   Plus,
   Search,
   SlidersHorizontal,
@@ -22,7 +24,8 @@ import {
   Video,
 } from "@lucide/vue";
 import type { Component } from "vue";
-import type { AudioTrackPreset, MediaAsset, MediaAssetType, TextTemplatePreset } from "../../types/editor";
+import type { AudioTrackPreset, MediaAsset, MediaAssetType, TextTemplatePreset, TtsEmotion, TtsStatus, TtsVoice } from "../../types/editor";
+import { TTS_MAX_TEXT_LENGTH, validateTtsText } from "../../lib/tts";
 
 type AssetFilter = "all" | "audio" | "caption" | "image" | "visual";
 type MediaToolId = "assets" | "audio" | "text" | "stickers" | "effects" | "captions" | "color";
@@ -45,6 +48,11 @@ const props = defineProps<{
   selectedAssetIds?: string[];
   timelineAssetIds?: string[];
   compact?: boolean;
+  ttsStatus?: TtsStatus;
+  ttsBusy?: boolean;
+  ttsProgress?: number;
+  ttsTaskStatus?: string;
+  ttsError?: string;
 }>();
 
 const emit = defineEmits<{
@@ -52,6 +60,7 @@ const emit = defineEmits<{
   selectAssets: [assetIds: string[]];
   importFiles: [files: File[]];
   importPaths: [paths: string[]];
+  convertStoryboard: [path: string];
   addAssetToTimeline: [assetId: string];
   addAudioPresetToTimeline: [preset: AudioTrackPreset];
   addTextTemplateToTimeline: [preset: TextTemplatePreset];
@@ -59,6 +68,9 @@ const emit = defineEmits<{
   deleteAssets: [assetIds: string[]];
   beginAssetDrag: [assetId: string, pointerId: number, clientX: number, clientY: number];
   beginTextTemplateDrag: [preset: TextTemplatePreset, pointerId: number, clientX: number, clientY: number];
+  setupTts: [];
+  generateSpeech: [request: { text: string; voice: TtsVoice; emotion: TtsEmotion; speed: number }];
+  cancelTts: [];
 }>();
 
 const searchQuery = ref("");
@@ -68,6 +80,23 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const assetScroller = ref<HTMLElement | null>(null);
 const isImportDragActive = ref(false);
 const previewingAudioPresetId = ref<string | null>(null);
+const speechText = ref("");
+const speechVoice = ref<TtsVoice>("zhFemale");
+const speechEmotion = ref<TtsEmotion>("natural");
+const speechSpeed = ref(1);
+const localSpeechError = computed(() => validateTtsText(speechText.value));
+const speechCharacterCount = computed(() => [...speechText.value].length);
+const canGenerateSpeech = computed(() => props.ttsStatus?.state === "ready" && !props.ttsBusy && !localSpeechError.value);
+
+function submitSpeech() {
+  if (!canGenerateSpeech.value) return;
+  emit("generateSpeech", {
+    text: speechText.value.trim(),
+    voice: speechVoice.value,
+    emotion: speechEmotion.value,
+    speed: speechSpeed.value,
+  });
+}
 const marqueeSelectionState = ref<{
   pointerId: number;
   startClientX: number;
@@ -411,6 +440,21 @@ async function openFilePicker() {
   }
 
   fileInput.value?.click();
+}
+
+async function openStoryboardPicker() {
+  if (!isTauri()) {
+    return;
+  }
+  const selected = await open({
+    title: "选择分镜宫格图",
+    multiple: false,
+    directory: false,
+    filters: [{ name: "分镜图片", extensions: ["jpg", "jpeg", "png", "webp"] }],
+  });
+  if (typeof selected === "string") {
+    emit("convertStoryboard", selected);
+  }
 }
 
 function handleFileInput(event: Event) {
@@ -991,6 +1035,54 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
           <span class="shrink-0 font-mono text-[10px] font-bold leading-5 text-[#60a5fa]">Web Audio 支持</span>
         </header>
 
+        <article class="grid gap-2 rounded-xl border border-[#245449] bg-[#10231f] p-2.5">
+          <header class="flex items-center justify-between gap-2">
+            <span class="inline-flex items-center gap-1.5 text-[12px] font-black text-[#d8fff4]"><Mic2 :size="14" />AI 配音</span>
+            <span class="text-[9px] font-bold text-[#64cdb0]">CosyVoice · 本地</span>
+          </header>
+
+          <template v-if="!ttsStatus?.supported">
+            <p class="text-[10px] leading-4 text-[#94a3b8]">{{ ttsStatus?.error || "仅桌面版 macOS Apple Silicon 支持。" }}</p>
+          </template>
+          <template v-else-if="ttsStatus.state !== 'ready'">
+            <p class="text-[10px] leading-4 text-[#a7b8b3]">首次使用需下载约 {{ (ttsStatus.requiredBytes / 1_000_000_000).toFixed(1) }} GB，安装后可离线生成。</p>
+            <UProgress v-if="ttsBusy" :model-value="ttsProgress || 0" size="xs" color="secondary" />
+            <p v-if="ttsTaskStatus || ttsError" class="text-[10px]" :class="ttsError ? 'text-[#fca5a5]' : 'text-[#8fd8c5]'">{{ ttsError || ttsTaskStatus }}</p>
+            <div class="flex gap-2">
+              <UButton size="xs" color="secondary" type="button" :loading="ttsBusy" :disabled="ttsBusy" @click="emit('setupTts')">安装本地模型</UButton>
+              <UButton v-if="ttsBusy" size="xs" color="neutral" variant="soft" type="button" @click="emit('cancelTts')">取消</UButton>
+            </div>
+          </template>
+          <template v-else>
+            <label class="grid gap-1 text-[10px] font-bold text-[#a7b8b3]">
+              台词
+              <textarea v-model="speechText" class="min-h-[72px] resize-y rounded-lg border border-[#2d5148] bg-[#091411] px-2 py-1.5 text-[11px] leading-4 text-[#e5f5f0] outline-none focus:border-[#2dd4a3]" :maxlength="TTS_MAX_TEXT_LENGTH" placeholder="例如：今天天气很好" />
+              <span class="text-right font-mono text-[9px]" :class="speechCharacterCount >= TTS_MAX_TEXT_LENGTH ? 'text-[#fca5a5]' : 'text-[#708d85]'">{{ speechCharacterCount }}/{{ TTS_MAX_TEXT_LENGTH }}</span>
+            </label>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="grid gap-1 text-[10px] font-bold text-[#a7b8b3]">音色
+                <select v-model="speechVoice" class="h-7 rounded border border-[#2d5148] bg-[#091411] px-1.5 text-[10px] text-[#e5f5f0]">
+                  <option value="zhFemale">中文女声</option><option value="zhMale">中文男声</option>
+                </select>
+              </label>
+              <label class="grid gap-1 text-[10px] font-bold text-[#a7b8b3]">情绪
+                <select v-model="speechEmotion" class="h-7 rounded border border-[#2d5148] bg-[#091411] px-1.5 text-[10px] text-[#e5f5f0]">
+                  <option value="natural">自然</option><option value="gentle">温柔</option><option value="cheerful">愉快</option><option value="serious">严肃</option>
+                </select>
+              </label>
+            </div>
+            <label class="grid gap-1 text-[10px] font-bold text-[#a7b8b3]">语速 {{ speechSpeed.toFixed(2) }}×
+              <input v-model.number="speechSpeed" type="range" min="0.75" max="1.5" step="0.05" class="w-full" />
+            </label>
+            <UProgress v-if="ttsBusy" :model-value="ttsProgress || 0" size="xs" color="secondary" />
+            <p v-if="ttsError || localSpeechError || ttsTaskStatus" class="text-[10px]" :class="ttsError || localSpeechError ? 'text-[#fca5a5]' : 'text-[#8fd8c5]'">{{ ttsError || localSpeechError || ttsTaskStatus }}</p>
+            <div class="flex gap-2">
+              <UButton class="flex-1" size="xs" color="secondary" type="button" :loading="ttsBusy" :disabled="!canGenerateSpeech" @click="submitSpeech">生成并添加</UButton>
+              <UButton v-if="ttsBusy" size="xs" color="neutral" variant="soft" type="button" @click="emit('cancelTts')">取消</UButton>
+            </div>
+          </template>
+        </article>
+
         <article
           v-for="track in audioTrackPresets"
           :key="track.id"
@@ -1108,6 +1200,12 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
             <Trash2 :size="importIconSize" />
             删除 {{ selectedDeletableAssetCount }}
           </UButton>
+          <UTooltip :text="isTauri() ? '分镜宫格图转视频' : '分镜转视频仅桌面版可用'">
+            <UButton color="neutral" variant="soft" :size="compact ? 'xs' : 'sm'" type="button" :disabled="!isTauri()" aria-label="分镜图转视频" @click="openStoryboardPicker">
+              <Clapperboard :size="importIconSize" />
+              <span v-if="!compact">分镜转视频</span>
+            </UButton>
+          </UTooltip>
           <UButton color="secondary" variant="solid" :size="compact ? 'xs' : 'sm'" class="shadow-md shadow-secondary/15" type="button" @click="openFilePicker">
             <Upload :size="importIconSize" />
             导入

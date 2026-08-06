@@ -178,7 +178,7 @@ export interface EditorSessionSeed {
   duration?: number;
 }
 
-export type MediaTaskKind = "import" | "export" | "proxy" | "thumbnail" | "waveform" | "projectSave";
+export type MediaTaskKind = "import" | "frameSequence" | "export" | "proxy" | "thumbnail" | "waveform" | "projectSave" | "ttsSetup" | "speechSynthesis";
 
 export type MediaTaskState =
   | "queued"
@@ -215,6 +215,27 @@ export interface ImportedMediaFile {
   fingerprint: string;
 }
 
+export type TtsVoice = "zhMale" | "zhFemale";
+export type TtsEmotion = "natural" | "gentle" | "cheerful" | "serious";
+
+export interface TtsStatus {
+  supported: boolean;
+  state: "notInstalled" | "installing" | "ready" | "error";
+  runtimeInstalled: boolean;
+  modelInstalled: boolean;
+  requiredBytes: number;
+  voices: Array<{ id: TtsVoice; label: string }>;
+  error?: string;
+}
+
+export interface SpeechSynthesisRequest {
+  projectId: string;
+  text: string;
+  voice: TtsVoice;
+  emotion: TtsEmotion;
+  speed: number;
+}
+
 export interface MediaMetadata {
   duration: number;
   width?: number;
@@ -228,5 +249,34 @@ export interface MediaDerivatives {
   thumbnailPath?: string;
   proxyPath?: string;
   waveformPeaks?: number[];
+  warnings: string[];
+}
+
+export interface StoryboardFrameRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface StoryboardToVideoRequest {
+  projectId: string;
+  sourcePath: string;
+  sourceWidth: number;
+  sourceHeight: number;
+  frames: StoryboardFrameRect[];
+  fps: number;
+  outputName: string;
+}
+
+export interface StoryboardToVideoResult {
+  managedPath: string;
+  url: string;
+  fileName: string;
+  fingerprint: string;
+  duration: number;
+  width: number;
+  height: number;
+  frameCount: number;
   warnings: string[];
 }

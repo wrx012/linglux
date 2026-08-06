@@ -1,0 +1,4 @@
+interface:
+  display_name: "Whiteboard Drawing Video"
+  short_description: "Create synchronized whiteboard drawing videos"
+  default_prompt: "Use $whiteboard-drawing-video to turn this .srt subtitle file into a frame-synchronized whiteboard drawing MP4."
