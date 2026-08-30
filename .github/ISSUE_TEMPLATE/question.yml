@@ -1,0 +1,61 @@
+name: Question
+description: Ask a focused usage, architecture, or contribution question.
+title: "question(area): "
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask one focused question per Issue. Replace `area` in the title with the primary area selected below.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: State the exact question and the decision or task it blocks.
+      placeholder: What do you need to understand?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Provide the relevant workflow, files, platform, or design constraints.
+      placeholder: What context is needed to answer accurately?
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What I tried
+      description: List documentation, commands, or approaches already attempted. Write N/A when none apply.
+      placeholder: N/A
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      options:
+        - Agent
+        - Desktop
+        - Editor
+        - Export
+        - Media core
+        - Storyboard
+        - TTS
+        - Workflow
+        - Repository
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: sensitive-data
+    attributes:
+      label: Sensitive data
+      options:
+        - label: I confirm that this question contains no credentials, private media, personal data, or undisclosed security vulnerability details.
+          required: true

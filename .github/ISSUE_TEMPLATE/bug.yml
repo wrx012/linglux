@@ -1,0 +1,103 @@
+name: Bug report
+description: Report a reproducible defect or regression in Linglux.
+title: "bug(area): "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Linglux. Replace `area` in the title with the primary area selected below. Do not include credentials, private media, or security vulnerability details.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the defect and its effect on your work.
+      placeholder: What went wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable sequence that reproduces the problem.
+      placeholder: |
+        1. Open...
+        2. Import...
+        3. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: What happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the OS version, Linglux version or commit, desktop/web mode, and relevant FFmpeg details.
+      placeholder: macOS 15.1, commit abc1234, desktop mode, FFmpeg 7.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      description: Select the single area most directly responsible for the problem.
+      options:
+        - Agent
+        - Desktop
+        - Editor
+        - Export
+        - Media core
+        - Storyboard
+        - TTS
+        - Workflow
+        - Repository
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      description: Select the closest impact level. Maintainers may adjust the resulting priority.
+      options:
+        - Critical — Data loss, destructive corruption, or credential/security exposure
+        - High — Blocks a core workflow, crashes repeatedly, or has no workaround
+        - Medium — Meaningful degradation with a workaround
+        - Low — Minor, cosmetic, or edge-case impact
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Add relevant logs, screenshots, or sample details after removing secrets and private paths. Write N/A when unavailable.
+      placeholder: N/A
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: sensitive-data
+    attributes:
+      label: Sensitive data
+      options:
+        - label: I confirm that this report contains no credentials, private media, personal data, or undisclosed security vulnerability details.
+          required: true
