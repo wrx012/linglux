@@ -18,6 +18,7 @@ Linglux is currently in pre-alpha development. No public release has been publis
 - Added task-backed storyboard grid preview and row-major H.264 frame-sequence encoding, providing the initial implementation for the 24-frame, 24 FPS storyboard workflow. ([PR #4], [Issue #5]) Thanks to @Bald-M.
 - Added pinned local CosyVoice setup and managed speech synthesis on supported macOS Apple Silicon systems, providing the initial implementation for voice-over generation. ([PR #4], [Issue #6]) Thanks to @Bald-M.
 - Added beat-marker alignment, cancellable media tasks, task recovery, credential-vault provider settings, and supporting regression tests. ([PR #4]) Thanks to @Bald-M.
+- Added ordered image-sequence review with natural sorting, drag reordering, aspect ratio and shot duration controls, continuous dynamic-comic timeline creation, and image asset add/delete actions. ([PR #25], [Issue #16]) Thanks to @Bald-M.
 
 ### Changed
 
@@ -33,5 +34,7 @@ Linglux is currently in pre-alpha development. No public release has been publis
 [PR #3]: https://github.com/wrx012/linglux/pull/3
 [PR #4]: https://github.com/wrx012/linglux/pull/4
 [PR #7]: https://github.com/wrx012/linglux/pull/7
+[PR #25]: https://github.com/wrx012/linglux/pull/25
 [Issue #5]: https://github.com/wrx012/linglux/issues/5
 [Issue #6]: https://github.com/wrx012/linglux/issues/6
+[Issue #16]: https://github.com/wrx012/linglux/issues/16
