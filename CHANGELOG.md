@@ -19,6 +19,7 @@ Linglux is currently in pre-alpha development. No public release has been publis
 - Added pinned local CosyVoice setup and managed speech synthesis on supported macOS Apple Silicon systems, providing the initial implementation for voice-over generation. ([PR #4], [Issue #6]) Thanks to @Bald-M.
 - Added beat-marker alignment, cancellable media tasks, task recovery, credential-vault provider settings, and supporting regression tests. ([PR #4]) Thanks to @Bald-M.
 - Added ordered image-sequence review with natural sorting, drag reordering, aspect ratio and shot duration controls, continuous dynamic-comic timeline creation, and image asset add/delete actions. ([PR #25], [Issue #16]) Thanks to @Bald-M.
+- Added a shot-first dynamic-comic workspace with card-based editing, accessible drag-and-swap ordering, timeline synchronization, batch duration controls, duplication and deletion feedback, responsive details, and shared undo/redo history. ([Issue #17]) Thanks to @Bald-M.
 
 ### Changed
 
@@ -38,3 +39,4 @@ Linglux is currently in pre-alpha development. No public release has been publis
 [Issue #5]: https://github.com/wrx012/linglux/issues/5
 [Issue #6]: https://github.com/wrx012/linglux/issues/6
 [Issue #16]: https://github.com/wrx012/linglux/issues/16
+[Issue #17]: https://github.com/wrx012/linglux/issues/17

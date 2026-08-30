@@ -1,5 +1,5 @@
 import type { App, Component, PropType } from "vue";
-import { computed, defineComponent, h, nextTick, ref, watch } from "vue";
+import { computed, defineComponent, h, nextTick, ref, Teleport, watch } from "vue";
 import { cva } from "class-variance-authority";
 import { clsx, type ClassValue } from "clsx";
 import {
@@ -303,6 +303,34 @@ const UiSeparator = defineComponent({
   props: { orientation: { type: String, default: "horizontal" } },
   setup(props, { attrs }) {
     return () => h("div", { ...attrs, role: "separator", "aria-orientation": props.orientation, class: cn("shrink-0 bg-border", props.orientation === "vertical" ? "h-full w-px" : "h-px w-full", attrs.class as string) });
+  },
+});
+
+const UiToast = defineComponent({
+  name: "UiToast",
+  props: {
+    open: Boolean,
+    title: { type: String, required: true },
+    description: { type: String, default: "" },
+    color: { type: String as PropType<UiColor>, default: "success" },
+  },
+  setup(props, { slots }) {
+    return () => props.open
+      ? h(Teleport, { to: "body" }, h("div", {
+          role: "status",
+          "aria-live": "polite",
+          class: cn(
+            "fixed bottom-5 left-1/2 z-[120] flex min-w-[260px] max-w-[calc(100vw-32px)] -translate-x-1/2 items-center gap-3 rounded-xl border bg-[#111821]/96 px-4 py-3 text-left shadow-[0_18px_50px_rgb(0_0_0/0.5)] backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2",
+            props.color === "error" ? "border-error/45" : props.color === "warning" ? "border-warning/45" : "border-success/40",
+          ),
+        }, [
+          slots.icon ? h("span", { class: "grid size-8 shrink-0 place-items-center rounded-full bg-success/12 text-success" }, slots.icon()) : null,
+          h("span", { class: "min-w-0" }, [
+            h("strong", { class: "block text-[12px] font-black text-highlighted" }, props.title),
+            props.description ? h("span", { class: "mt-0.5 block text-[10px] font-semibold text-muted" }, props.description) : null,
+          ]),
+        ]))
+      : null;
   },
 });
 
@@ -720,7 +748,7 @@ const components: Record<string, Component> = {
   UiApp, UiBadge, UiButton, UiCard, UiChip, UiDashboardGroup, UiDashboardNavbar,
   UiDashboardPanel, UiDashboardToolbar, UiInput, UiInputNumber, UiModal, UiPopover,
   UiProgress, UiSelect, UiSeparator, UiSlideover, UiSlider, UiSwitch, UiTabs,
-  UiTextarea, UiTooltip,
+  UiTextarea, UiToast, UiTooltip,
 };
 
 export const shadcnUi = {
@@ -733,5 +761,5 @@ export {
   cn, UiApp, UiBadge, UiButton, UiCard, UiChip, UiDashboardGroup, UiDashboardNavbar,
   UiDashboardPanel, UiDashboardToolbar, UiInput, UiInputNumber, UiModal, UiPopover,
   UiProgress, UiSelect, UiSeparator, UiSlideover, UiSlider, UiSwitch, UiTabs,
-  UiTextarea, UiTooltip,
+  UiTextarea, UiToast, UiTooltip,
 };
