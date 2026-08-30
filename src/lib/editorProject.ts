@@ -2,6 +2,9 @@ import type {
   AudioBeatMarker,
   ClipEffect,
   ClipTransform,
+  DynamicComicCameraMotion,
+  DynamicComicProject,
+  DynamicComicShot,
   EditSession,
   EditorProject,
   EditorSessionSeed,
@@ -60,6 +63,15 @@ export function createDefaultTextClipStyle(): TextClipStyle {
   return { ...DEFAULT_TEXT_CLIP_STYLE };
 }
 
+export function createDefaultDynamicComicCameraMotion(): DynamicComicCameraMotion {
+  return {
+    preset: "static",
+    start: { x: 0.5, y: 0.5, scale: 1 },
+    end: { x: 0.5, y: 0.5, scale: 1 },
+    easing: "easeInOut",
+  };
+}
+
 export function normalizeTextClipStyle(style?: Partial<TextClipStyle>): TextClipStyle {
   return {
     ...DEFAULT_TEXT_CLIP_STYLE,
@@ -82,6 +94,8 @@ export function createSeededEditSession(seed: EditorSessionSeed = {}): EditSessi
     id: `project-${Date.now()}`,
     name: sourceNodeId ? `剪辑会话 · ${sourceNodeId}` : "Linglux 剪辑工程",
     sourceNodeId,
+    mode: seed.mode === "dynamicComic" ? "dynamicComic" : "timeline",
+    dynamicComic: seed.mode === "dynamicComic" ? { shots: [] } : undefined,
     assets: [],
     tracks,
     mainTrackMagnetEnabled: true,
@@ -106,6 +120,14 @@ export function cloneProject(project: EditorProject): EditorProject {
 }
 
 export function normalizeEditorProject(project: EditorProject): EditorProject {
+  project.mode = project.mode === "dynamicComic" ? "dynamicComic" : "timeline";
+
+  if (project.mode === "dynamicComic") {
+    project.dynamicComic = normalizeDynamicComicProject(project.dynamicComic);
+  } else {
+    delete project.dynamicComic;
+  }
+
   project.mainTrackMagnetEnabled = project.mainTrackMagnetEnabled !== false;
 
   for (const track of project.tracks) {
@@ -145,6 +167,105 @@ export function normalizeEditorProject(project: EditorProject): EditorProject {
   }
 
   return project;
+}
+
+function normalizeDynamicComicProject(dynamicComic?: Partial<DynamicComicProject>): DynamicComicProject {
+  const shots = Array.isArray(dynamicComic?.shots) ? dynamicComic.shots : [];
+  const usedIds = new Set<string>();
+
+  return {
+    shots: shots
+      .map((shot) => normalizeDynamicComicShot(shot, usedIds))
+      .sort((left, right) => left.order - right.order),
+  };
+}
+
+function normalizeDynamicComicShot(shot: Partial<DynamicComicShot>, usedIds: Set<string>): DynamicComicShot {
+  const duration = finiteAtLeast(shot.duration, 0);
+  const candidateId = nonEmptyString(shot.id);
+  const id = candidateId && !usedIds.has(candidateId) ? candidateId : createUniqueDynamicComicShotId(usedIds);
+  usedIds.add(id);
+
+  return {
+    id,
+    order: finiteIntegerAtLeast(shot.order, 0),
+    visualAssetId: nonEmptyString(shot.visualAssetId),
+    visualClipId: nonEmptyString(shot.visualClipId),
+    duration,
+    focus: {
+      x: finiteBetween(shot.focus?.x, 0, 1, 0.5),
+      y: finiteBetween(shot.focus?.y, 0, 1, 0.5),
+    },
+    characterId: nonEmptyString(shot.characterId),
+    dialogue: typeof shot.dialogue === "string" ? shot.dialogue : "",
+    emotion: nonEmptyString(shot.emotion),
+    pauseBefore: finiteAtLeast(shot.pauseBefore, 0),
+    pauseAfter: finiteAtLeast(shot.pauseAfter, 0),
+    cameraMotion: normalizeDynamicComicCameraMotion(shot.cameraMotion),
+    transition: nonEmptyString(shot.transition),
+    soundEffectAssetIds: Array.isArray(shot.soundEffectAssetIds)
+      ? shot.soundEffectAssetIds.map(nonEmptyString).filter((id): id is string => Boolean(id))
+      : [],
+  };
+}
+
+function createUniqueDynamicComicShotId(usedIds: Set<string>) {
+  let id: string;
+
+  do {
+    id = `shot-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+  } while (usedIds.has(id));
+
+  return id;
+}
+
+function normalizeDynamicComicCameraMotion(motion?: Partial<DynamicComicCameraMotion>): DynamicComicCameraMotion {
+  const defaults = createDefaultDynamicComicCameraMotion();
+  const presets = new Set<DynamicComicCameraMotion["preset"]>([
+    "static",
+    "pushIn",
+    "pullOut",
+    "panLeft",
+    "panRight",
+    "panUp",
+    "panDown",
+    "impactPush",
+  ]);
+  const easings = new Set<DynamicComicCameraMotion["easing"]>(["linear", "easeIn", "easeOut", "easeInOut"]);
+
+  return {
+    preset: motion?.preset && presets.has(motion.preset) ? motion.preset : defaults.preset,
+    start: normalizeDynamicComicFrame(motion?.start, defaults.start),
+    end: normalizeDynamicComicFrame(motion?.end, defaults.end),
+    easing: motion?.easing && easings.has(motion.easing) ? motion.easing : defaults.easing,
+  };
+}
+
+function normalizeDynamicComicFrame(
+  frame: Partial<DynamicComicCameraMotion["start"]> | undefined,
+  fallback: DynamicComicCameraMotion["start"],
+) {
+  return {
+    x: finiteBetween(frame?.x, 0, 1, fallback.x),
+    y: finiteBetween(frame?.y, 0, 1, fallback.y),
+    scale: finiteAtLeast(frame?.scale, 0.01, fallback.scale),
+  };
+}
+
+function nonEmptyString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function finiteAtLeast(value: unknown, minimum: number, fallback = minimum) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(value, minimum) : fallback;
+}
+
+function finiteIntegerAtLeast(value: unknown, minimum: number, fallback = minimum) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(Math.trunc(value), minimum) : fallback;
+}
+
+function finiteBetween(value: unknown, minimum: number, maximum: number, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.min(Math.max(value, minimum), maximum) : fallback;
 }
 
 function normalizeAudioBeatMarkers(markers: AudioBeatMarker[] | undefined, duration: number) {
