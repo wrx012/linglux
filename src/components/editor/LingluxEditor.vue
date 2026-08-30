@@ -21,6 +21,7 @@ import {
 } from "@lucide/vue";
 import AgentChatPanel from "./AgentChatPanel.vue";
 import DynamicComicImportDialog from "./DynamicComicImportDialog.vue";
+import DynamicComicWorkspace from "./DynamicComicWorkspace.vue";
 import ExportDialog from "./ExportDialog.vue";
 import InspectorPanel from "./InspectorPanel.vue";
 import MediaBin from "./MediaBin.vue";
@@ -38,6 +39,7 @@ import type {
 import type {
   AudioBeatMarker,
   AudioTrackPreset,
+  DynamicComicShot,
   EditSession,
   EditorExportResult,
   EditorProject,
@@ -61,6 +63,7 @@ import type {
 } from "../../types/editor";
 import type { DynamicComicAspectRatio } from "../../lib/dynamicComicImport";
 import { createDynamicComicShots, DYNAMIC_COMIC_RESOLUTIONS, naturalSortImageAssets } from "../../lib/dynamicComicImport";
+import { duplicateDynamicComicShot, synchronizeDynamicComicTimeline } from "../../lib/dynamicComicWorkspace";
 import {
   calculateProjectDuration,
   closeTimelineTrackGaps,
@@ -196,6 +199,8 @@ const storyboardStatus = ref("");
 const storyboardError = ref("");
 const activeStoryboardTaskId = ref("");
 const isDynamicComicImportOpen = ref(false);
+const editorView = ref<"shotBoard" | "timeline">(project.value.mode === "dynamicComic" ? "shotBoard" : "timeline");
+const selectedShotIds = ref<string[]>(project.value.dynamicComic?.shots[0]?.id ? [project.value.dynamicComic.shots[0].id] : []);
 const dynamicComicImportAssets = ref<MediaAsset[]>([]);
 const dynamicComicImportError = ref("");
 const saveState = ref("已保存");
@@ -1403,6 +1408,8 @@ function createDynamicComicSequence(request: { assetIds: string[]; aspectRatio: 
   const created = createDynamicComicShots(assets, track.id, request.duration, existingShots.length, start);
   project.value.mode = "dynamicComic";
   project.value.dynamicComic = { shots: [...existingShots, ...created.shots] };
+  editorView.value = "shotBoard";
+  selectedShotIds.value = created.shots[0]?.id ? [created.shots[0].id] : [];
   project.value.resolution = { ...DYNAMIC_COMIC_RESOLUTIONS[request.aspectRatio] };
   track.clips.push(...created.clips);
   track.clips.sort((left, right) => left.start - right.start);
@@ -1413,6 +1420,83 @@ function createDynamicComicSequence(request: { assetIds: string[]; aspectRatio: 
   shortcutStatusTone.value = "success";
   shortcutStatusMessage.value = `已创建 ${created.shots.length} 个动态漫镜头`;
   markDirty();
+}
+
+function selectDynamicComicShot(id: string, additive: boolean) {
+  if (!additive) selectedShotIds.value = [id];
+  else if (selectedShotIds.value.includes(id)) selectedShotIds.value = selectedShotIds.value.filter((shotId) => shotId !== id);
+  else selectedShotIds.value = [...selectedShotIds.value, id];
+  const shot = project.value.dynamicComic?.shots.find((item) => item.id === id);
+  if (shot?.visualClipId) selectedClipId.value = shot.visualClipId;
+}
+
+function mutateDynamicComicShots(mutation: (shots: DynamicComicShot[]) => void) {
+  const dynamicComic = project.value.dynamicComic;
+  if (!dynamicComic) return;
+  const linkedTrackIds = [...new Set(dynamicComic.shots.flatMap((shot) => {
+    const track = project.value.tracks.find((item) => item.clips.some((clip) => clip.id === shot.visualClipId));
+    return track ? [track.id] : [];
+  }))];
+  pushHistory({ settings: true, wholeTrackIds: linkedTrackIds });
+  mutation(dynamicComic.shots);
+  dynamicComic.shots.forEach((shot, order) => { shot.order = order; });
+  synchronizeDynamicComicTimeline(dynamicComic.shots, project.value.tracks.find(isPrimaryTimelineTrack));
+  markDirty();
+}
+
+function reorderDynamicComicShotSequence(ids: string[]) {
+  const orderById = new Map(ids.map((id, order) => [id, order]));
+  mutateDynamicComicShots((shots) => {
+    project.value.dynamicComic!.shots = [...shots].sort((left, right) => (orderById.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (orderById.get(right.id) ?? Number.MAX_SAFE_INTEGER));
+  });
+}
+
+function updateDynamicComicShot(id: string, patch: Partial<DynamicComicShot>) {
+  mutateDynamicComicShots((shots) => {
+    const shot = shots.find((item) => item.id === id);
+    if (shot) Object.assign(shot, patch);
+  });
+}
+
+function setDynamicComicShotDurations(ids: string[], duration: number) {
+  const selected = new Set(ids);
+  mutateDynamicComicShots((shots) => { for (const shot of shots) if (selected.has(shot.id)) shot.duration = duration; });
+}
+
+function duplicateDynamicComicShotById(id: string) {
+  const shot = project.value.dynamicComic?.shots.find((item) => item.id === id);
+  if (!shot) return;
+  const track = project.value.tracks.find((item) => item.clips.some((clip) => clip.id === shot.visualClipId));
+  const clip = track?.clips.find((item) => item.id === shot.visualClipId);
+  mutateDynamicComicShots((shots) => {
+    const duplicated = duplicateDynamicComicShot(shot, clip);
+    const index = shots.findIndex((item) => item.id === id);
+    shots.splice(index + 1, 0, duplicated.shot);
+    if (duplicated.clip && track) track.clips.push(duplicated.clip);
+    selectedShotIds.value = [duplicated.shot.id];
+    selectedClipId.value = duplicated.clip?.id ?? "";
+  });
+}
+
+function deleteDynamicComicShots(ids: string[]) {
+  const deleted = new Set(ids);
+  mutateDynamicComicShots((shots) => {
+    const clipIds = new Set(shots.filter((shot) => deleted.has(shot.id)).flatMap((shot) => shot.visualClipId ? [shot.visualClipId] : []));
+    project.value.dynamicComic!.shots = shots.filter((shot) => !deleted.has(shot.id));
+    for (const track of project.value.tracks) track.clips = track.clips.filter((clip) => !clipIds.has(clip.id));
+  });
+  const first = project.value.dynamicComic?.shots[0];
+  selectedShotIds.value = first ? [first.id] : [];
+  selectedClipId.value = first?.visualClipId ?? "";
+}
+
+function openTimelineForDynamicComicShot(shotId?: string) {
+  const shot = project.value.dynamicComic?.shots.find((item) => item.id === shotId);
+  editorView.value = "timeline";
+  if (!shot?.visualClipId) return;
+  selectedClipId.value = shot.visualClipId;
+  const clip = findClip(shot.visualClipId);
+  if (clip) playhead.value = clip.start;
 }
 
 async function cancelImport() {
@@ -4739,6 +4823,10 @@ function cleanupImportedObjectUrls() {
 
       <template #default>
         <div class="flex min-w-0 flex-wrap items-center justify-center gap-2 text-[11px] font-semibold text-toned max-[900px]:justify-start">
+          <div v-if="project.mode === 'dynamicComic'" class="flex rounded-lg border border-[#283448] bg-[#090e16] p-0.5">
+            <UiButton color="secondary" :variant="editorView === 'shotBoard' ? 'soft' : 'ghost'" size="xs" type="button" :aria-pressed="editorView === 'shotBoard'" @click="editorView = 'shotBoard'">镜头编排</UiButton>
+            <UiButton color="primary" :variant="editorView === 'timeline' ? 'soft' : 'ghost'" size="xs" type="button" :aria-pressed="editorView === 'timeline'" @click="editorView = 'timeline'">专业时间线</UiButton>
+          </div>
           <span class="text-muted max-[760px]:hidden">当前工程</span>
           <UiBadge color="neutral" variant="subtle" size="sm" class="max-w-[240px] truncate">
             {{ project.name }}
@@ -4965,7 +5053,19 @@ function cleanupImportedObjectUrls() {
       </template>
     </UiDashboardNavbar>
 
-    <div class="grid min-h-0 grid-rows-[minmax(280px,1fr)_minmax(340px,44vh)] overflow-hidden max-[900px]:min-h-[980px] max-[900px]:grid-rows-[minmax(680px,auto)_360px]">
+    <DynamicComicWorkspace
+      v-if="project.mode === 'dynamicComic' && editorView === 'shotBoard'"
+      :project="project"
+      :selected-shot-ids="selectedShotIds"
+      @select="selectDynamicComicShot"
+      @reorder-sequence="reorderDynamicComicShotSequence"
+      @duplicate="duplicateDynamicComicShotById"
+      @delete="deleteDynamicComicShots"
+      @batch-duration="setDynamicComicShotDurations"
+      @update-shot="updateDynamicComicShot"
+      @open-timeline="openTimelineForDynamicComicShot"
+    />
+    <div v-else class="grid min-h-0 grid-rows-[minmax(280px,1fr)_minmax(340px,44vh)] overflow-hidden max-[900px]:min-h-[980px] max-[900px]:grid-rows-[minmax(680px,auto)_360px]">
       <div class="grid min-h-0 overflow-hidden" :class="previewWorkspaceLayoutClass">
         <MediaBin
           compact
