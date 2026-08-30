@@ -238,7 +238,7 @@ function updateOpen(open: boolean) {
 </script>
 
 <template>
-  <UiModal :open="open" :close="false" :dismissible="!isGenerating" title="分镜图转视频" class="w-auto max-w-none bg-transparent p-0 ring-0 shadow-none" :ui="{ overlay: 'z-[75] bg-black/65 backdrop-blur-sm', content: 'z-[75] max-h-none' }" @update:open="updateOpen">
+  <UiModal :open="open" :dismissible="!isGenerating" title="分镜图转视频" class="w-auto max-w-none bg-transparent p-0 ring-0 shadow-none" :ui="{ overlay: 'z-[75] bg-black/65 backdrop-blur-sm', content: 'z-[75] max-h-none' }" @update:open="updateOpen">
     <template #content>
       <section class="flex max-h-[calc(100dvh_-_32px)] w-[min(980px,calc(100vw_-_32px))] flex-col overflow-hidden rounded-xl border border-[#26313a] bg-[#0d1117] shadow-[0_24px_90px_rgb(0_0_0/0.6)]">
         <header class="flex items-center justify-between border-b border-[#222b34] px-5 py-4">

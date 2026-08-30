@@ -49,7 +49,6 @@ function updateOpen(open: boolean) {
 <template>
   <UiModal
     :open="open"
-    :close="false"
     :dismissible="!isExporting"
     title="导出剪辑结果"
     class="w-auto max-w-none bg-transparent p-0 ring-0 shadow-none"

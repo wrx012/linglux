@@ -21,8 +21,8 @@ Linglux is currently in pre-alpha development. No public release has been publis
 
 ### Changed
 
-- Replaced Nuxt UI with a local shadcn-vue-style component layer backed by Reka UI, preserving the existing desktop workstation layout and component behavior.
-- Moved Tailwind CSS integration directly into Vite and added local semantic theme tokens, global `Ui*` component registration, startup error feedback, and migration parity tests.
+- Replaced Nuxt UI with a local shadcn-vue-style component layer backed by Reka UI, preserving the existing desktop workstation layout and component behavior. ([PR #7]) Thanks to @Bald-M.
+- Moved Tailwind CSS integration directly into Vite and added local semantic theme tokens, global `Ui*` component registration, startup error feedback, and migration parity tests. ([PR #7]) Thanks to @Bald-M.
 - Refined workflow canvas spacing, typography, and responsive layout behavior. ([PR #2]) Thanks to @wrx012.
 - Expanded the editor mockup into a desktop media architecture with durable project packages, derivative caches, worker queues, and observable task events. ([PR #3]) Thanks to @Bald-M.
 - Standardized the frontend package workflow on pnpm and updated project documentation for the editor Agent and media-core boundaries. ([PR #4]) Thanks to @Bald-M.
@@ -32,5 +32,6 @@ Linglux is currently in pre-alpha development. No public release has been publis
 [PR #2]: https://github.com/wrx012/linglux/pull/2
 [PR #3]: https://github.com/wrx012/linglux/pull/3
 [PR #4]: https://github.com/wrx012/linglux/pull/4
+[PR #7]: https://github.com/wrx012/linglux/pull/7
 [Issue #5]: https://github.com/wrx012/linglux/issues/5
 [Issue #6]: https://github.com/wrx012/linglux/issues/6

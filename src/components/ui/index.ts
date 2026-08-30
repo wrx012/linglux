@@ -26,6 +26,9 @@ import {
 import { twMerge } from "tailwind-merge";
 
 type UiConfig = Record<string, ClassValue>;
+type UiColor = "primary" | "secondary" | "success" | "error" | "warning" | "neutral";
+type UiSize = "xs" | "sm" | "md" | "lg";
+type UiVariant = "solid" | "soft" | "subtle" | "outline" | "ghost" | "link";
 type Item = string | number | {
   label?: string;
   value?: unknown;
@@ -204,7 +207,6 @@ const UiDashboardNavbar = defineComponent({
   props: {
     as: { type: String, default: "header" },
     ui: Object as PropType<UiConfig>,
-    toggle: { type: [Boolean, Object], default: true },
   },
   setup(props, { attrs, slots }) {
     return () => h(props.as, {
@@ -230,12 +232,19 @@ const UiCard = defineComponent({
   props: {
     as: { type: String, default: "div" },
     ui: Object as PropType<UiConfig>,
-    variant: { type: String, default: "subtle" },
+    variant: { type: String as PropType<"subtle" | "outline" | "soft">, default: "subtle" },
   },
   setup(props, { attrs, slots }) {
     return () => h(props.as, {
       ...attrs,
-      class: cn("rounded-lg border border-default bg-elevated", props.ui?.root, attrs.class as ClassValue),
+      class: cn(
+        "rounded-lg border",
+        props.variant === "outline" && "border-default bg-transparent",
+        props.variant === "soft" && "border-transparent bg-accented",
+        props.variant === "subtle" && "border-default bg-elevated",
+        props.ui?.root,
+        attrs.class as ClassValue,
+      ),
     }, [
       slots.header ? h("div", { class: cn("border-b border-default p-4", props.ui?.header) }, slots.header()) : null,
       h("div", { class: cn("p-4", props.ui?.body) }, slots.default?.()),
@@ -247,19 +256,44 @@ const UiCard = defineComponent({
 const UiBadge = defineComponent({
   name: "UiBadge",
   inheritAttrs: false,
-  props: { color: { type: String, default: "neutral" }, variant: String, size: { type: String, default: "sm" } },
+  props: {
+    color: { type: String as PropType<UiColor>, default: "neutral" },
+    variant: { type: String as PropType<"solid" | "subtle" | "outline">, default: "subtle" },
+    size: { type: String as PropType<UiSize>, default: "sm" },
+  },
   setup(props, { attrs, slots }) {
-    const colors: Record<string, string> = { primary: "bg-primary/15 text-primary", secondary: "bg-secondary/15 text-secondary", success: "bg-success/15 text-success", error: "bg-error/15 text-error", warning: "bg-warning/15 text-warning", neutral: "bg-accented text-toned" };
-    return () => h("span", { ...attrs, class: cn("inline-flex min-w-0 items-center rounded px-1.5 py-0.5 text-[10px] font-bold", colors[props.color], props.variant === "outline" && "border border-current bg-transparent", attrs.class as string) }, slots.default?.());
+    const colors: Record<UiColor, string> = { primary: "bg-primary/15 text-primary", secondary: "bg-secondary/15 text-secondary", success: "bg-success/15 text-success", error: "bg-error/15 text-error", warning: "bg-warning/15 text-warning", neutral: "bg-accented text-toned" };
+    const solidColors: Record<UiColor, string> = { primary: "bg-primary text-inverted", secondary: "bg-secondary text-white", success: "bg-success text-inverted", error: "bg-error text-white", warning: "bg-warning text-inverted", neutral: "bg-accented text-highlighted" };
+    const sizes: Record<UiSize, string> = { xs: "px-1 py-0 text-[9px]", sm: "px-1.5 py-0.5 text-[10px]", md: "px-2 py-0.5 text-[11px]", lg: "px-2.5 py-1 text-[12px]" };
+    return () => h("span", { ...attrs, class: cn("inline-flex min-w-0 items-center rounded font-bold", sizes[props.size], props.variant === "solid" ? solidColors[props.color] : colors[props.color], props.variant === "outline" && "border border-current bg-transparent", attrs.class as string) }, slots.default?.());
   },
 });
 
 const UiChip = defineComponent({
   name: "UiChip",
   inheritAttrs: false,
-  props: { color: { type: String, default: "neutral" } },
+  props: {
+    color: { type: String as PropType<UiColor>, default: "neutral" },
+    size: { type: String as PropType<UiSize>, default: "sm" },
+    inset: Boolean,
+    standalone: Boolean,
+  },
   setup(props, { attrs, slots }) {
-    return () => h("span", { ...attrs, class: cn("inline-flex size-2 rounded-full", props.color === "success" ? "bg-success" : "bg-toned", attrs.class as string) }, slots.default?.());
+    const colors: Record<UiColor, string> = { primary: "bg-primary", secondary: "bg-secondary", success: "bg-success", error: "bg-error", warning: "bg-warning", neutral: "bg-toned" };
+    const sizes: Record<UiSize, string> = { xs: "size-1.5", sm: "size-2", md: "size-2.5", lg: "size-3" };
+    return () => {
+      const indicator = h("span", {
+        "aria-hidden": "true",
+        class: cn(
+          "rounded-full",
+          sizes[props.size],
+          colors[props.color],
+          !props.standalone && "absolute",
+          !props.standalone && (props.inset ? "right-0 top-0" : "-right-0.5 -top-0.5"),
+        ),
+      });
+      return h("span", { ...attrs, class: cn(props.standalone ? "inline-flex" : "relative inline-flex", attrs.class as string) }, props.standalone ? indicator : [slots.default?.(), indicator]);
+    };
   },
 });
 
@@ -273,6 +307,9 @@ const UiSeparator = defineComponent({
 });
 
 const inputBase = "w-full rounded-md border border-default bg-elevated px-3 py-2 text-[12px] font-semibold text-highlighted outline-none placeholder:text-[var(--ui-text-muted)] placeholder:opacity-100 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:opacity-50";
+const inputSizes: Record<UiSize, string> = { xs: "min-h-7 px-2 py-1 text-[10px]", sm: "min-h-8 px-2.5 py-1.5 text-[11px]", md: "min-h-9 px-3 py-2 text-[12px]", lg: "min-h-10 px-3.5 py-2.5 text-[13px]" };
+const inputVariants: Record<"outline" | "subtle" | "soft", string> = { outline: "border-default bg-transparent", subtle: "border-default bg-elevated", soft: "border-transparent bg-accented" };
+const inputFocusColors: Record<UiColor, string> = { primary: "focus:border-primary focus:ring-primary/20", secondary: "focus:border-secondary focus:ring-secondary/20", success: "focus:border-success focus:ring-success/20", error: "focus:border-error focus:ring-error/20", warning: "focus:border-warning focus:ring-warning/20", neutral: "focus:border-accented focus:ring-accented/20" };
 
 const UiInput = defineComponent({
   name: "UiInput",
@@ -280,15 +317,15 @@ const UiInput = defineComponent({
   props: {
     modelValue: [String, Number],
     ui: Object as PropType<UiConfig>,
-    color: String,
-    variant: String,
-    size: String,
+    color: { type: String as PropType<UiColor>, default: "primary" },
+    variant: { type: String as PropType<"outline" | "subtle" | "soft">, default: "outline" },
+    size: { type: String as PropType<UiSize>, default: "md" },
   },
   emits: ["update:modelValue"],
   setup(props, { attrs, emit, slots }) {
     return () => h("div", { class: cn("relative", props.ui?.root, attrs.class as ClassValue) }, [
       slots.leading ? h("span", { class: cn("pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3", props.ui?.leading) }, slots.leading()) : null,
-      h("input", { ...attrs, class: cn(inputBase, slots.leading && "pl-9", slots.trailing && "pr-10", props.ui?.base), value: props.modelValue ?? "", onInput: (event: Event) => emit("update:modelValue", (event.target as HTMLInputElement).type === "number" ? (event.target as HTMLInputElement).valueAsNumber : (event.target as HTMLInputElement).value) }),
+      h("input", { ...attrs, class: cn(inputBase, inputSizes[props.size], inputVariants[props.variant], inputFocusColors[props.color], slots.leading && "pl-9", slots.trailing && "pr-10", props.ui?.base), value: props.modelValue ?? "", onInput: (event: Event) => emit("update:modelValue", (event.target as HTMLInputElement).type === "number" ? (event.target as HTMLInputElement).valueAsNumber : (event.target as HTMLInputElement).value) }),
       slots.trailing ? h("span", { class: cn("absolute inset-y-0 right-0 flex items-center pr-2", props.ui?.trailing) }, slots.trailing()) : null,
     ]);
   },
@@ -324,10 +361,16 @@ const UiInputNumber = defineComponent({
 const UiTextarea = defineComponent({
   name: "UiTextarea",
   inheritAttrs: false,
-  props: { modelValue: String, ui: Object as PropType<UiConfig> },
+  props: {
+    modelValue: String,
+    ui: Object as PropType<UiConfig>,
+    color: { type: String as PropType<UiColor>, default: "primary" },
+    variant: { type: String as PropType<"outline" | "subtle" | "soft">, default: "outline" },
+    size: { type: String as PropType<UiSize>, default: "md" },
+  },
   emits: ["update:modelValue"],
   setup(props, { attrs, emit }) {
-    return () => h("textarea", { ...attrs, class: cn(inputBase, props.ui?.base, attrs.class as string), value: props.modelValue, onInput: (event: Event) => emit("update:modelValue", (event.target as HTMLTextAreaElement).value) });
+    return () => h("textarea", { ...attrs, class: cn(inputBase, inputSizes[props.size], inputVariants[props.variant], inputFocusColors[props.color], props.ui?.base, attrs.class as string), value: props.modelValue, onInput: (event: Event) => emit("update:modelValue", (event.target as HTMLTextAreaElement).value) });
   },
 });
 
@@ -340,9 +383,9 @@ const UiSelect = defineComponent({
     valueKey: { type: String, default: "value" },
     labelKey: { type: String, default: "label" },
     ui: Object as PropType<UiConfig>,
-    color: String,
-    variant: String,
-    size: String,
+    color: { type: String as PropType<UiColor>, default: "primary" },
+    variant: { type: String as PropType<"outline" | "subtle" | "soft">, default: "outline" },
+    size: { type: String as PropType<UiSize>, default: "md" },
   },
   emits: ["update:modelValue"],
   setup(props, { attrs, emit, slots }) {
@@ -354,7 +397,7 @@ const UiSelect = defineComponent({
           : null,
         h("select", {
           ...selectAttrs,
-          class: cn(inputBase, "appearance-none pr-8", slots.leading && "pl-9", props.ui?.base),
+          class: cn(inputBase, inputSizes[props.size], inputVariants[props.variant], inputFocusColors[props.color], "appearance-none pr-8", slots.leading && "pl-9", props.ui?.base),
           value: props.modelValue,
           onChange: (event: Event) => {
             const selectedValue = (event.target as HTMLSelectElement).value;
@@ -398,10 +441,16 @@ const UiSlider = defineComponent({
 const UiProgress = defineComponent({
   name: "UiProgress",
   inheritAttrs: false,
-  props: { modelValue: { type: Number, default: 0 }, max: { type: Number, default: 100 }, color: { type: String, default: "primary" } },
+  props: {
+    modelValue: { type: Number, default: 0 },
+    max: { type: Number, default: 100 },
+    color: { type: String as PropType<UiColor>, default: "primary" },
+    size: { type: String as PropType<UiSize>, default: "sm" },
+  },
   setup(props, { attrs }) {
     const percent = computed(() => Math.max(0, Math.min(100, props.max ? (props.modelValue / props.max) * 100 : 0)));
-    return () => h("div", { ...attrs, role: "progressbar", "aria-valuenow": props.modelValue, "aria-valuemax": props.max, class: cn("h-1.5 overflow-hidden rounded-full bg-accented", attrs.class as string) }, h("div", { class: cn("h-full transition-[width]", props.color === "error" ? "bg-error" : props.color === "success" ? "bg-success" : props.color === "secondary" ? "bg-secondary" : "bg-primary"), style: { width: `${percent.value}%` } }));
+    const sizes: Record<UiSize, string> = { xs: "h-1", sm: "h-1.5", md: "h-2", lg: "h-2.5" };
+    return () => h("div", { ...attrs, role: "progressbar", "aria-valuenow": props.modelValue, "aria-valuemax": props.max, class: cn(sizes[props.size], "overflow-hidden rounded-full bg-accented", attrs.class as string) }, h("div", { class: cn("h-full transition-[width]", props.color === "error" ? "bg-error" : props.color === "success" ? "bg-success" : props.color === "secondary" ? "bg-secondary" : props.color === "warning" ? "bg-warning" : "bg-primary"), style: { width: `${percent.value}%` } }));
   },
 });
 
@@ -415,10 +464,9 @@ const UiTabs = defineComponent({
     valueKey: { type: String, default: "value" },
     labelKey: { type: String, default: "label" },
     ui: Object as PropType<UiConfig>,
-    color: String,
-    variant: String,
-    size: String,
-    content: { type: [Boolean, Object], default: true },
+    color: { type: String as PropType<UiColor>, default: "primary" },
+    variant: { type: String as PropType<"pill" | "link">, default: "pill" },
+    size: { type: String as PropType<UiSize>, default: "sm" },
     orientation: { type: String as PropType<"horizontal" | "vertical">, default: "horizontal" },
     activationMode: { type: String as PropType<"automatic" | "manual">, default: "automatic" },
   },
@@ -426,6 +474,8 @@ const UiTabs = defineComponent({
   setup(props, { attrs, emit, slots }) {
     return () => {
       const { class: attrClass, ...listAttrs } = attrs;
+      const triggerSizes: Record<UiSize, string> = { xs: "px-2 py-1 text-[10px]", sm: "px-2.5 py-1.5 text-[11px]", md: "px-3 py-2 text-[12px]", lg: "px-4 py-2.5 text-[13px]" };
+      const activeColors: Record<UiColor, string> = { primary: "data-[state=active]:bg-primary/15 data-[state=active]:text-primary", secondary: "data-[state=active]:bg-secondary/15 data-[state=active]:text-secondary", success: "data-[state=active]:bg-success/15 data-[state=active]:text-success", error: "data-[state=active]:bg-error/15 data-[state=active]:text-error", warning: "data-[state=active]:bg-warning/15 data-[state=active]:text-warning", neutral: "data-[state=active]:bg-accented data-[state=active]:text-highlighted" };
       const rootProps: Record<string, unknown> = {
         orientation: props.orientation,
         activationMode: props.activationMode,
@@ -440,7 +490,8 @@ const UiTabs = defineComponent({
         default: () => h(TabsList, {
           ...listAttrs,
           class: cn(
-            "inline-flex gap-1 rounded-lg bg-elevated p-1",
+            "inline-flex gap-1",
+            props.variant === "pill" ? "rounded-lg bg-elevated p-1" : "border-b border-default",
             props.orientation === "vertical" && "flex-col",
             props.ui?.list,
           ),
@@ -456,7 +507,10 @@ const UiTabs = defineComponent({
               value,
               disabled,
               class: cn(
-                "inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-bold text-muted outline-none transition focus-visible:ring-2 focus-visible:ring-primary/45 disabled:pointer-events-none disabled:opacity-45 data-[state=active]:bg-primary/15 data-[state=active]:text-primary",
+                "inline-flex items-center justify-center gap-1.5 font-bold text-muted outline-none transition focus-visible:ring-2 focus-visible:ring-primary/45 disabled:pointer-events-none disabled:opacity-45",
+                triggerSizes[props.size],
+                props.variant === "pill" ? "rounded-md" : "border-b-2 border-transparent data-[state=active]:border-current",
+                activeColors[props.color],
                 props.ui?.trigger,
                 active && props.ui?.indicator,
               ),
@@ -481,9 +535,7 @@ function dialogComponent(name: string, side = false) {
       open: { type: Boolean, default: undefined },
       defaultOpen: Boolean,
       dismissible: { type: Boolean, default: true },
-      close: { type: [Boolean, Object], default: true },
       title: String,
-      content: Object,
       ui: Object as PropType<UiConfig>,
     },
     emits: ["update:open"],
@@ -507,11 +559,16 @@ function dialogComponent(name: string, side = false) {
         void nextTick(() => target.isConnected && target.focus());
       };
 
+      const updateOpen = (value: boolean) => {
+        if (!value && !props.dismissible) return;
+        emit("update:open", value);
+      };
+
       return () => h(DialogRoot, {
         open: props.open,
         defaultOpen: props.defaultOpen,
         modal: true,
-        "onUpdate:open": (value: boolean) => emit("update:open", value),
+        "onUpdate:open": updateOpen,
       }, {
         default: () => h(DialogPortal, { to: "body" }, {
           default: () => [
@@ -520,6 +577,7 @@ function dialogComponent(name: string, side = false) {
             }),
             h(DialogContent, {
               ...attrs,
+              "aria-describedby": attrs["aria-describedby"] ?? undefined,
               class: cn(
                 "fixed z-[71] outline-none",
                 side
@@ -564,11 +622,16 @@ const UiPopover = defineComponent({
       if (!props.dismissible) event.preventDefault();
     };
 
+    const updateOpen = (value: boolean) => {
+      if (!value && !props.dismissible) return;
+      emit("update:open", value);
+    };
+
     return () => h(PopoverRoot, {
       open: props.open,
       defaultOpen: props.defaultOpen,
       modal: false,
-      "onUpdate:open": (value: boolean) => emit("update:open", value),
+      "onUpdate:open": updateOpen,
     }, {
       default: () => [
         h("span", { ...attrs, class: cn("inline-flex min-w-0", props.ui?.root, attrs.class as ClassValue) }, [

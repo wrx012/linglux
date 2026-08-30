@@ -2811,6 +2811,12 @@ function updateInspectorDrawerOpen(open: boolean) {
   }
 }
 
+function updateAgentDrawerOpen(open: boolean) {
+  if (!open) {
+    closeAgentPanel();
+  }
+}
+
 function closeShortcutMenu() {
   isShortcutMenuOpen.value = false;
   editingShortcutAction.value = null;
@@ -4607,7 +4613,6 @@ function cleanupImportedObjectUrls() {
     >
     <UiDashboardNavbar
       as="header"
-      :toggle="false"
       class="min-h-14 border-b border-default bg-default/95 px-3 shadow-sm backdrop-blur-xl"
       :ui="{ root: 'gap-3 py-2', left: 'min-w-[220px] gap-2', center: 'min-w-[220px] flex-1 justify-center max-[900px]:justify-start', right: 'ml-auto shrink-0 gap-1.5' }"
     >
@@ -5005,7 +5010,6 @@ function cleanupImportedObjectUrls() {
 
     <UiSlideover
       :open="isInspectorDrawerVisible"
-      :close="false"
       title="片段属性"
       class="w-full max-w-[420px] bg-transparent p-0 ring-0 shadow-none"
       :ui="{ overlay: 'z-[60] bg-black/55 backdrop-blur-sm', content: 'z-[60]' }"
@@ -5029,11 +5033,10 @@ function cleanupImportedObjectUrls() {
 
     <UiSlideover
       :open="isAgentPanelOpen && isAgentDrawerViewport"
-      :close="false"
       title="AI 剪辑助手"
       class="w-full max-w-[420px] bg-transparent p-0 ring-0 shadow-none"
       :ui="{ overlay: 'z-[60] bg-black/55 backdrop-blur-sm', content: 'z-[60]' }"
-      @update:open="($event) => { if (!$event) closeAgentPanel() }"
+      @update:open="updateAgentDrawerOpen"
     >
       <template #content>
         <AgentChatPanel

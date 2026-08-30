@@ -2361,7 +2361,6 @@ onUnmounted(() => {
 
     <UiModal
       :open="isCameraPanelOpen"
-      :close="false"
       title="摄影机控制"
       class="w-auto max-w-none bg-transparent p-0 ring-0 shadow-none"
       :ui="{ overlay: 'bg-black/60 backdrop-blur-sm', content: 'max-h-none' }"
@@ -2390,7 +2389,6 @@ onUnmounted(() => {
           <UiTabs
             :model-value="selectedCameraCategory"
             :items="cameraTypeTabs"
-            :content="false"
             variant="pill"
             aria-label="摄影机类型"
             :ui="{ list: 'flex flex-wrap gap-2 bg-transparent p-0', indicator: 'bg-[#24242a] ring-1 ring-[#4b5563]', trigger: 'h-10 flex-none gap-2 rounded-lg px-3 text-[13px] font-bold text-[#d1d5db] data-[state=active]:text-white' }"
@@ -2487,7 +2485,6 @@ onUnmounted(() => {
 
     <UiModal
       :open="isSettingsPanelOpen"
-      :close="false"
       title="设置"
       class="w-auto max-w-none bg-transparent p-0 ring-0 shadow-none"
       :ui="{ overlay: 'bg-black/45 backdrop-blur-sm', content: 'max-h-none' }"
@@ -2568,7 +2565,6 @@ onUnmounted(() => {
 
     <UiModal
       :open="isApiKeyPanelOpen"
-      :close="false"
       :dismissible="!isSavingApiKey && !isClearingApiKey"
       title="API Key 设置"
       class="w-auto max-w-none bg-transparent p-0 ring-0 shadow-none"
@@ -2593,7 +2589,6 @@ onUnmounted(() => {
             <UiTabs
               :model-value="apiKeyDraft.provider"
               :items="apiProviderOptions"
-              :content="false"
               variant="pill"
               aria-label="API provider"
               :ui="{ list: 'grid h-9 grid-cols-4 gap-0.5 rounded-[5px] border border-[#222228] bg-[#15151a] p-0.5', indicator: 'rounded bg-[#0f2f2e] ring-1 ring-[#115e59]', trigger: 'justify-center rounded text-[10px] font-extrabold text-[#6b7280] data-[state=active]:text-[#14b8a6]' }"
