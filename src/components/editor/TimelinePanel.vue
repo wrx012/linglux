@@ -1162,7 +1162,7 @@ onUnmounted(() => {
     :class="isAssetDragActive ? 'border-[#2f6df6]/70 shadow-[0_-18px_48px_rgb(47_109_246/0.18),inset_0_0_0_1px_rgb(47_109_246/0.28)]' : ''"
     aria-label="多轨时间线"
   >
-    <UDashboardToolbar
+    <UiDashboardToolbar
       as="header"
       class="border-b border-default bg-elevated/75 px-4 backdrop-blur"
       :ui="{ root: 'grid min-h-[50px] grid-cols-[minmax(260px,1fr)_auto] items-center gap-3 max-[760px]:grid-cols-1 max-[760px]:py-2', left: 'min-w-0', right: 'justify-end' }"
@@ -1172,11 +1172,11 @@ onUnmounted(() => {
         <div class="min-w-0">
           <h2 class="truncate text-[13px] font-black text-highlighted">剪辑时间轴</h2>
         </div>
-        <UBadge color="neutral" variant="subtle" size="sm" class="font-mono">{{ formatTimecode(project.duration) }}</UBadge>
-        <USeparator orientation="vertical" class="h-5" />
-        <UButton color="neutral" variant="ghost" square size="xs" type="button" title="分割" aria-label="分割选中片段" @click="emit('splitSelected')">
+        <UiBadge color="neutral" variant="subtle" size="sm" class="font-mono">{{ formatTimecode(project.duration) }}</UiBadge>
+        <UiSeparator orientation="vertical" class="h-5" />
+        <UiButton color="neutral" variant="ghost" square size="xs" type="button" title="分割" aria-label="分割选中片段" @click="emit('splitSelected')">
           <Scissors :size="16" />
-        </UButton>
+        </UiButton>
         <Link :size="16" class="text-[#687386]" />
         <Copy :size="16" class="text-[#687386]" />
         <Snowflake :size="16" class="text-[#687386]" />
@@ -1196,7 +1196,7 @@ onUnmounted(() => {
             <path d="m6.5 4.5 1.45 1.45L6.5 7.4 5.05 5.95 6.5 4.5Zm6.5-1 1.45 1.45L13 6.4l-1.45-1.45L13 3.5ZM19 5l1.45 1.45L19 7.9l-1.45-1.45L19 5Z" fill="currentColor" />
           </svg>
         </button>
-        <UButton
+        <UiButton
           color="neutral"
           variant="ghost"
           square
@@ -1212,17 +1212,17 @@ onUnmounted(() => {
             <path d="M8 8.5h8v7H8z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
             <path d="m10 6.5-2 2 2 2M14 13.5l2 2-2 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-        </UButton>
-        <UButton color="error" variant="ghost" square size="xs" type="button" title="删除" aria-label="删除选中片段" @click="emit('deleteSelected')">
+        </UiButton>
+        <UiButton color="error" variant="ghost" square size="xs" type="button" title="删除" aria-label="删除选中片段" @click="emit('deleteSelected')">
           <Trash2 :size="16" />
-        </UButton>
+        </UiButton>
         <Bookmark :size="16" class="text-[#687386]" />
       </div>
       </template>
 
       <template #right>
       <div class="flex items-center justify-end gap-2 text-toned">
-        <UButton
+        <UiButton
           :color="mainTrackMagnetEnabled ? 'primary' : 'neutral'"
           :variant="mainTrackMagnetEnabled ? 'soft' : 'ghost'"
           square
@@ -1237,18 +1237,18 @@ onUnmounted(() => {
             <path d="M3 7.25h5v9.5H3zM16 7.25h5v9.5h-5" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
             <path d="M8 12h8M10.75 9.5 8 12l2.75 2.5M13.25 9.5 16 12l-2.75 2.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-        </UButton>
+        </UiButton>
         <MoveHorizontal :size="17" />
-        <UButton color="neutral" variant="ghost" square size="xs" type="button" aria-label="缩小时间线" @click="emit('zoomOut')">
+        <UiButton color="neutral" variant="ghost" square size="xs" type="button" aria-label="缩小时间线" @click="emit('zoomOut')">
           <Minus :size="15" />
-        </UButton>
-        <UProgress :model-value="timelineScalePercent" :max="100" color="secondary" size="sm" class="w-28" :title="`时间线缩放 ${Math.round(timelineScale * 100)}%`" />
-        <UButton color="neutral" variant="ghost" square size="xs" type="button" aria-label="放大时间线" @click="emit('zoomIn')">
+        </UiButton>
+        <UiProgress :model-value="timelineScalePercent" :max="100" color="secondary" size="sm" class="w-28" :title="`时间线缩放 ${Math.round(timelineScale * 100)}%`" />
+        <UiButton color="neutral" variant="ghost" square size="xs" type="button" aria-label="放大时间线" @click="emit('zoomIn')">
           <Plus :size="15" />
-        </UButton>
+        </UiButton>
       </div>
       </template>
-    </UDashboardToolbar>
+    </UiDashboardToolbar>
 
     <div class="grid min-h-0 grid-cols-[108px_1fr] overflow-hidden">
       <div class="border-r border-[#20242f] bg-[#11151e] pt-8">

@@ -6,15 +6,15 @@ Guidance for coding agents working in this repository.
 
 Linglux is a desktop-first AI agent for video creation, editing, enhancement, and automation. Keep every change aligned with professional video tooling, node-based workflow automation, local media durability, and desktop app ergonomics.
 
-Read `DESIGN.md` before feature, architecture, data-model, provider, export, storage, media-core, or Tauri changes. Read `MEDIA_CORE.md` before changing managed media import, project manifests, derivative cache, FFmpeg execution, task queues, cancellation, or export behavior.
+Read `DESIGN.md` before feature, architecture, data-model, provider, export, storage, media-core, or Tauri changes. Read `MEDIA_CORE.md` before changing managed media import, project manifests, derivative cache, FFmpeg execution, task queues, cancellation, or export behavior. Treat `DESIGN.md` as product and architecture intent, `MEDIA_CORE.md` as media implementation guidance, `AGENTS.md` as execution policy, and `CHANGELOG.md` as the user-visible change record.
 
 The design docs are the product north star, but source code may be ahead of documentation. Verify current implementation before editing and update docs when the task includes documentation work.
 
-Keep changes narrow. Do not revert unrelated uncommitted work, generated output, or local experiments. Generated or local-only paths such as `node_modules/`, `dist/`, `src-tauri/target/`, `src-tauri/gen/`, Nuxt UI generated component/import files, OS metadata files, and development export output under `output/` must not be edited by hand or committed unless explicitly requested.
+Keep changes narrow. Do not revert unrelated uncommitted work, generated output, or local experiments. Generated or local-only paths such as `node_modules/`, `dist/`, `src-tauri/target/`, `src-tauri/gen/`, OS metadata files, and development export output under `output/` must not be edited by hand or committed unless explicitly requested.
 
 ## Current Architecture
 
-Linglux is a Vue 3 + TypeScript + Vite frontend wrapped by Tauri 2. Styling uses Tailwind CSS v4 through the current Vite/Nuxt UI stack, UI primitives come from `@nuxt/ui`, icons come from `@lucide/vue`, and the package manager is pnpm with `pnpm-lock.yaml`.
+Linglux is a Vue 3 + TypeScript + Vite frontend wrapped by Tauri 2. Styling uses Tailwind CSS v4 through its Vite plugin, UI primitives live in the local shadcn-vue style component layer under `src/components/ui`, icons come from `@lucide/vue`, and the package manager is pnpm with `pnpm-lock.yaml`.
 
 Required runtimes are Node.js 20 or later for frontend work and a Rust toolchain for desktop work. The Tauri crate uses Rust edition 2021 and declares minimum Rust `1.77.2`.
 
@@ -31,10 +31,13 @@ The current implementation is still a prototype in the image/video-provider sens
 
 - `DESIGN.md`: product goals, architecture boundaries, current implementation snapshot, target data model, roadmap, and design principles.
 - `MEDIA_CORE.md`: media-core layout, task model, import/derivative/export responsibilities, storage policy, and validation notes.
+- `CHANGELOG.md`: unreleased and released user-visible changes with PR, Issue, and contributor attribution.
 - `README.md`: setup, development, build, troubleshooting, and platform requirements.
 - `package.json`: pnpm scripts and dependency source of truth.
-- `vite.config.ts`: Vue, Nuxt UI, theme defaults, and dev server configuration.
-- `src/main.ts`: Vue app entry and Nuxt UI plugin registration.
+- `vite.config.ts`: Vue, Tailwind CSS, and dev server configuration.
+- `src/main.ts`: Vue app entry and local UI component registration.
+- `src/components/ui/index.ts`: local shadcn-vue style primitives, variants, and overlays.
+- `src/components/ui/migrationParity.test.ts`: shared `Ui*` interface compatibility tests; keep product-specific behavior tests in their owning module.
 - `src/App.vue`: app shell and workflow workspace. It owns workflow nodes/edges, canvas interaction state, API key/settings panel state, camera controls, `activeWorkspace`, `editSession`, and generated/exported artifacts.
 - `src/components/editor/LingluxEditor.vue`: editor workspace orchestration. It owns the editable project clone, selection, playback state, history/future stacks, imported object URLs, managed import/derivative tasks, Agent plan application, timeline operations, save/export actions, shortcuts, and child component wiring.
 - `src/components/editor/AgentChatPanel.vue`: persistent AI conversation, task cancellation, typed plan preview, explicit apply/reject controls, and desktop-only provider messaging.
@@ -105,6 +108,7 @@ Before handing off code changes, run the narrowest reliable validation for the f
 
 - Frontend or shared TypeScript changes: `pnpm build`.
 - Frontend logic covered by unit tests: `pnpm test`.
+- Shared UI module or theme changes: run both `pnpm test` and `pnpm build`.
 - Tauri command, Rust bridge, or host setup changes: `cargo check --manifest-path src-tauri/Cargo.toml`.
 - Media-core import, project store, task, cache, derivative, or FFmpeg wrapper changes: `cargo test --manifest-path src-tauri/Cargo.toml -p linglux-media-core`.
 - Packaging, window, bundle, permission, asset protocol, or release changes: `pnpm tauri:build`.
@@ -120,7 +124,9 @@ Prefer Vue 3 Composition API with `<script setup lang="ts">`. Keep TypeScript st
 
 Use `ref`, `reactive`, and `computed` for local state and derived values. Keep state and handler names descriptive and product-oriented.
 
-Use existing Nuxt UI components for common buttons, dialogs, popovers, dropdowns, cards, progress, badges, inputs, selects, checkboxes, switches, tooltips, and modals. Preserve the configured Nuxt UI theme in `vite.config.ts`; do not bypass it for broad one-off styling.
+Use the globally registered local `Ui*` components for common buttons, dialogs, popovers, dropdowns, cards, progress, badges, inputs, selects, switches, tooltips, and modals. Treat this module as the stable application interface: keep Reka UI and other interaction adapters inside `src/components/ui`, preserve shared theme tokens in `src/style.css`, and extend the existing interface before creating a product-local wrapper.
+
+When changing the UI module, preserve model events, named slots, focus behavior, dismissal semantics, overlay stacking, keyboard access, and caller-provided `class`/`ui` overrides. Keep migration parity tests focused on the shared interface rather than unrelated editor or workflow behavior.
 
 Use `@lucide/vue` icons for common UI actions. Preserve accessibility basics: semantic landmarks, useful `aria-label`s, `type="button"` on non-submit buttons, dialog attributes, labels for form controls, and keyboard/pointer cleanup.
 
@@ -252,11 +258,11 @@ Use pnpm, not npm or yarn, unless the project intentionally changes package mana
 
 Do not add new dependencies for simple UI, state, timing, formatting, or data transformations that the existing stack can handle. If adding a dependency, explain why it is worth the desktop bundle size and maintenance cost.
 
-Nuxt UI is already part of the current UI stack. Do not add parallel component libraries for ordinary controls.
+The local shadcn-vue component layer is already part of the current UI stack. Do not add parallel component libraries for ordinary controls.
 
-Do not broaden Tailwind, Nuxt UI, Vite, TypeScript, Tauri, or Cargo workspace configuration unless the requested change requires it. Keep Vite and Tauri dev URLs aligned.
+Do not broaden Tailwind, the local UI layer, Vite, TypeScript, Tauri, or Cargo workspace configuration unless the requested change requires it. Keep Vite and Tauri dev URLs aligned.
 
-Do not hand-edit generated Tauri schemas under `src-tauri/gen/` or generated Nuxt UI auto-import/component declaration files.
+Do not hand-edit generated Tauri schemas under `src-tauri/gen/`.
 
 ## Change Management
 
@@ -265,6 +271,8 @@ Keep changes scoped to the requested feature or fix. Avoid broad refactors while
 Follow `CONTRIBUTING.md` when preparing Issues and pull requests. Its title, form, validation, screenshot, changelog, sensitive-data, and repository-hygiene requirements are enforced by repository workflows; do not duplicate or weaken those rules here.
 
 If a change affects both frontend and Tauri, update both sides in the same pass and validate the bridge. If source code and docs disagree, prefer the current source for implementation details and update docs when the task includes documentation work.
+
+Keep `CHANGELOG.md` under `Unreleased` while the project is pre-alpha and no release is being cut. Record notable user-visible changes with their verified PR and Issue links, and add `Thanks to @author` only when the GitHub contributor is known. Do not invent a release version, date, tag, PR, Issue, or attribution.
 
 When editing UI, preserve the restrained dark professional workstation language: compact controls, dense panels, canvas/grid surfaces, green/teal and blue accents, and clear hierarchy. Avoid marketing-style landing sections, unrelated palette rewrites, decorative cards, or broad visual redesigns unless explicitly requested.
 

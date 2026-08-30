@@ -163,7 +163,7 @@ function updateClipEffectIntensity(value: number | number[] | undefined) {
             <span>内容</span>
           </header>
           <div class="px-5 pb-4">
-            <UTextarea
+            <UiTextarea
               class="w-full"
               :model-value="selectedClip.captionText ?? selectedClip.name"
               :rows="4"
@@ -181,7 +181,7 @@ function updateClipEffectIntensity(value: number | number[] | undefined) {
           <div class="grid gap-4 px-5 pb-4">
             <label class="grid gap-2">
               <span class="text-[12px] font-bold text-[#8993a3]">字体</span>
-              <USelect
+              <UiSelect
                 :model-value="textStyle.fontFamily"
                 :items="fontOptions"
                 class="w-full"
@@ -191,12 +191,12 @@ function updateClipEffectIntensity(value: number | number[] | undefined) {
                 <template #leading>
                   <Type :size="14" class="text-[#8993a3]" />
                 </template>
-              </USelect>
+              </UiSelect>
             </label>
 
             <label class="grid gap-2">
               <span class="text-[12px] font-bold text-[#8993a3]">字号</span>
-              <UInputNumber
+              <UiInputNumber
                 :model-value="textStyle.fontSize"
                 :min="8"
                 :max="180"
@@ -234,7 +234,7 @@ function updateClipEffectIntensity(value: number | number[] | undefined) {
           <div class="grid grid-cols-2 gap-3 px-5 pb-4">
             <label class="grid gap-2">
               <span class="text-[12px] font-bold text-[#8993a3]">字距</span>
-              <UInputNumber
+              <UiInputNumber
                 :model-value="textStyle.letterSpacing"
                 :min="-20"
                 :max="60"
@@ -247,7 +247,7 @@ function updateClipEffectIntensity(value: number | number[] | undefined) {
             </label>
             <label class="grid gap-2">
               <span class="text-[12px] font-bold text-[#8993a3]">行高</span>
-              <UInputNumber
+              <UiInputNumber
                 :model-value="textStyle.lineHeight"
                 :min="0.8"
                 :max="3"
@@ -264,7 +264,7 @@ function updateClipEffectIntensity(value: number | number[] | undefined) {
         <section class="border-b border-[#262c38]">
           <header class="flex items-center justify-between gap-3 px-5 py-3 text-left text-[12px] font-black text-[#d8deea]">
             <span>背景</span>
-            <USwitch
+            <UiSwitch
               :model-value="textStyle.backgroundEnabled"
               size="sm"
               :aria-label="textStyle.backgroundEnabled ? '隐藏文字背景' : '显示文字背景'"
@@ -296,7 +296,7 @@ function updateClipEffectIntensity(value: number | number[] | undefined) {
             <div class="grid grid-cols-2 gap-3" :class="textStyle.backgroundEnabled ? '' : 'opacity-45'">
               <label class="grid gap-2">
                 <span class="text-[12px] font-bold text-[#8993a3]">宽度</span>
-                <UInputNumber
+                <UiInputNumber
                   :model-value="textStyle.backgroundWidth"
                   :min="0"
                   :max="1200"
@@ -310,7 +310,7 @@ function updateClipEffectIntensity(value: number | number[] | undefined) {
               </label>
               <label class="grid gap-2">
                 <span class="text-[12px] font-bold text-[#8993a3]">高度</span>
-                <UInputNumber
+                <UiInputNumber
                   :model-value="textStyle.backgroundHeight"
                   :min="0"
                   :max="800"
@@ -324,7 +324,7 @@ function updateClipEffectIntensity(value: number | number[] | undefined) {
               </label>
               <label class="grid gap-2">
                 <span class="text-[12px] font-bold text-[#8993a3]">X 偏移</span>
-                <UInputNumber
+                <UiInputNumber
                   :model-value="textStyle.backgroundXOffset"
                   :min="-600"
                   :max="600"
@@ -338,7 +338,7 @@ function updateClipEffectIntensity(value: number | number[] | undefined) {
               </label>
               <label class="grid gap-2">
                 <span class="text-[12px] font-bold text-[#8993a3]">Y 偏移</span>
-                <UInputNumber
+                <UiInputNumber
                   :model-value="textStyle.backgroundYOffset"
                   :min="-600"
                   :max="600"
@@ -353,7 +353,7 @@ function updateClipEffectIntensity(value: number | number[] | undefined) {
             </div>
             <label class="grid gap-2" :class="textStyle.backgroundEnabled ? '' : 'opacity-45'">
               <span class="text-[12px] font-bold text-[#8993a3]">圆角</span>
-              <UInputNumber
+              <UiInputNumber
                 :model-value="textStyle.backgroundCornerRadius"
                 :min="0"
                 :max="240"
@@ -381,19 +381,19 @@ function updateClipEffectIntensity(value: number | number[] | undefined) {
           <div class="grid grid-cols-2 gap-3 border-t border-[#262c38] p-4">
             <label class="grid gap-2">
               <span class="text-[12px] font-bold text-[#8993a3]">X</span>
-              <UInputNumber :model-value="selectedClip.transform.x" :increment="false" :decrement="false" :ui="workstationInputUi" @update:model-value="updateTransformNumber('x', $event)" />
+              <UiInputNumber :model-value="selectedClip.transform.x" :increment="false" :decrement="false" :ui="workstationInputUi" @update:model-value="updateTransformNumber('x', $event)" />
             </label>
             <label class="grid gap-2">
               <span class="text-[12px] font-bold text-[#8993a3]">Y</span>
-              <UInputNumber :model-value="selectedClip.transform.y" :increment="false" :decrement="false" :ui="workstationInputUi" @update:model-value="updateTransformNumber('y', $event)" />
+              <UiInputNumber :model-value="selectedClip.transform.y" :increment="false" :decrement="false" :ui="workstationInputUi" @update:model-value="updateTransformNumber('y', $event)" />
             </label>
             <label class="grid gap-2">
               <span class="text-[12px] font-bold text-[#8993a3]">缩放</span>
-              <UInputNumber :model-value="selectedClip.transform.scale" :min="0.1" :max="4" :step="0.05" :increment="false" :decrement="false" :ui="workstationInputUi" @update:model-value="updateTransformNumber('scale', $event)" />
+              <UiInputNumber :model-value="selectedClip.transform.scale" :min="0.1" :max="4" :step="0.05" :increment="false" :decrement="false" :ui="workstationInputUi" @update:model-value="updateTransformNumber('scale', $event)" />
             </label>
             <label class="grid gap-2">
               <span class="text-[12px] font-bold text-[#8993a3]">旋转</span>
-              <UInputNumber :model-value="selectedClip.transform.rotation" :increment="false" :decrement="false" :ui="workstationInputUi" @update:model-value="updateTransformNumber('rotation', $event)" />
+              <UiInputNumber :model-value="selectedClip.transform.rotation" :increment="false" :decrement="false" :ui="workstationInputUi" @update:model-value="updateTransformNumber('rotation', $event)" />
             </label>
           </div>
         </details>
@@ -409,22 +409,22 @@ function updateClipEffectIntensity(value: number | number[] | undefined) {
           <div class="grid gap-4 border-t border-[#262c38] p-4 text-[13px]">
             <label class="grid gap-2">
               <span class="font-bold text-[#8993a3]">透明度 {{ Math.round(selectedClip.transform.opacity * 100) }}%</span>
-              <USlider :model-value="selectedClip.transform.opacity" :min="0" :max="1" :step="0.01" size="sm" @update:model-value="updateTransformNumber('opacity', $event)" />
+              <UiSlider :model-value="selectedClip.transform.opacity" :min="0" :max="1" :step="0.01" size="sm" @update:model-value="updateTransformNumber('opacity', $event)" />
             </label>
             <label class="grid gap-2">
               <span class="font-bold text-[#8993a3]">音量 {{ Math.round(selectedClip.volume * 100) }}%</span>
-              <USlider :model-value="selectedClip.volume" :min="0" :max="1" :step="0.01" size="sm" @update:model-value="updateClipVolume" />
+              <UiSlider :model-value="selectedClip.volume" :min="0" :max="1" :step="0.01" size="sm" @update:model-value="updateClipVolume" />
             </label>
             <div class="flex items-center justify-between rounded-lg border border-[#2a3344] bg-[#0f131c] px-3 py-3 font-bold text-[#8993a3]">
               静音
-              <USwitch :model-value="selectedClip.muted" size="sm" aria-label="片段静音" @update:model-value="updateClipMuted" />
+              <UiSwitch :model-value="selectedClip.muted" size="sm" aria-label="片段静音" @update:model-value="updateClipMuted" />
             </div>
             <label class="grid gap-2">
               <span class="inline-flex items-center gap-2 font-bold text-[#8993a3]">
                 <Droplet :size="15" class="text-[#34d399]" />
                 {{ selectedClip.effects[0]?.label ?? "Effect" }}
               </span>
-              <USlider :model-value="selectedClip.effects[0]?.intensity ?? 0" :min="0" :max="100" :step="1" size="sm" @update:model-value="updateClipEffectIntensity" />
+              <UiSlider :model-value="selectedClip.effects[0]?.intensity ?? 0" :min="0" :max="100" :step="1" size="sm" @update:model-value="updateClipEffectIntensity" />
             </label>
           </div>
         </details>

@@ -238,12 +238,12 @@ function updateOpen(open: boolean) {
 </script>
 
 <template>
-  <UModal :open="open" :close="false" :dismissible="!isGenerating" title="分镜图转视频" class="w-auto max-w-none bg-transparent p-0 ring-0 shadow-none" :ui="{ overlay: 'z-[75] bg-black/65 backdrop-blur-sm', content: 'z-[75] max-h-none' }" @update:open="updateOpen">
+  <UiModal :open="open" :dismissible="!isGenerating" title="分镜图转视频" class="w-auto max-w-none bg-transparent p-0 ring-0 shadow-none" :ui="{ overlay: 'z-[75] bg-black/65 backdrop-blur-sm', content: 'z-[75] max-h-none' }" @update:open="updateOpen">
     <template #content>
       <section class="flex max-h-[calc(100dvh_-_32px)] w-[min(980px,calc(100vw_-_32px))] flex-col overflow-hidden rounded-xl border border-[#26313a] bg-[#0d1117] shadow-[0_24px_90px_rgb(0_0_0/0.6)]">
         <header class="flex items-center justify-between border-b border-[#222b34] px-5 py-4">
           <div><p class="text-[10px] font-black text-[#5eead4]">FRAME SEQUENCE</p><h2 class="text-[16px] font-bold text-white">分镜图转视频</h2></div>
-          <UButton square color="neutral" variant="ghost" type="button" :disabled="isGenerating" aria-label="关闭" @click="emit('close')"><X :size="16" /></UButton>
+          <UiButton square color="neutral" variant="ghost" type="button" :disabled="isGenerating" aria-label="关闭" @click="emit('close')"><X :size="16" /></UiButton>
         </header>
         <div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] overflow-hidden max-[800px]:grid-cols-1">
           <section class="editor-scrollbar overflow-auto bg-[#080b0f] p-5">
@@ -255,27 +255,27 @@ function updateOpen(open: boolean) {
           <aside class="editor-scrollbar grid content-start gap-4 overflow-y-auto border-l border-[#222b34] bg-[#10151c] p-4">
             <div><p class="text-[12px] font-black text-[#dbeafe]">{{ confidence }}</p><p v-if="detectionError" class="mt-1 text-[10px] text-[#fbbf24]">{{ detectionError }}</p><p class="mt-1 text-[10px] text-[#64748b]">绿色框即最终画面，顺序从左到右、从上到下。</p></div>
             <div class="grid grid-cols-3 gap-2">
-              <label class="text-[10px] text-[#94a3b8]">列数<UInput v-model.number="columns" type="number" :min="1" :max="12" size="xs" /></label>
-              <label class="text-[10px] text-[#94a3b8]">行数<UInput v-model.number="rows" type="number" :min="1" :max="12" size="xs" /></label>
-              <label class="text-[10px] text-[#94a3b8]">有效帧<UInput v-model.number="frameCount" type="number" :min="1" :max="columns * rows" size="xs" /></label>
+              <label class="text-[10px] text-[#94a3b8]">列数<UiInput v-model.number="columns" type="number" :min="1" :max="12" size="xs" /></label>
+              <label class="text-[10px] text-[#94a3b8]">行数<UiInput v-model.number="rows" type="number" :min="1" :max="12" size="xs" /></label>
+              <label class="text-[10px] text-[#94a3b8]">有效帧<UiInput v-model.number="frameCount" type="number" :min="1" :max="columns * rows" size="xs" /></label>
             </div>
             <div class="grid grid-cols-2 gap-2">
-              <label class="text-[10px] text-[#94a3b8]">左边界<UInput v-model.number="outerLeft" type="number" :min="0" size="xs" /></label>
-              <label class="text-[10px] text-[#94a3b8]">右边界<UInput v-model.number="outerRight" type="number" :min="0" size="xs" /></label>
-              <label class="text-[10px] text-[#94a3b8]">上边界<UInput v-model.number="outerTop" type="number" :min="0" size="xs" /></label>
-              <label class="text-[10px] text-[#94a3b8]">下边界<UInput v-model.number="outerBottom" type="number" :min="0" size="xs" /></label>
-              <label class="text-[10px] text-[#94a3b8]">横间距<UInput v-model.number="gapX" type="number" :min="0" size="xs" /></label>
-              <label class="text-[10px] text-[#94a3b8]">纵间距<UInput v-model.number="gapY" type="number" :min="0" size="xs" /></label>
-              <label class="text-[10px] text-[#94a3b8]">编号裁切<UInput v-model.number="topTrim" type="number" :min="0" size="xs" /></label>
+              <label class="text-[10px] text-[#94a3b8]">左边界<UiInput v-model.number="outerLeft" type="number" :min="0" size="xs" /></label>
+              <label class="text-[10px] text-[#94a3b8]">右边界<UiInput v-model.number="outerRight" type="number" :min="0" size="xs" /></label>
+              <label class="text-[10px] text-[#94a3b8]">上边界<UiInput v-model.number="outerTop" type="number" :min="0" size="xs" /></label>
+              <label class="text-[10px] text-[#94a3b8]">下边界<UiInput v-model.number="outerBottom" type="number" :min="0" size="xs" /></label>
+              <label class="text-[10px] text-[#94a3b8]">横间距<UiInput v-model.number="gapX" type="number" :min="0" size="xs" /></label>
+              <label class="text-[10px] text-[#94a3b8]">纵间距<UiInput v-model.number="gapY" type="number" :min="0" size="xs" /></label>
+              <label class="text-[10px] text-[#94a3b8]">编号裁切<UiInput v-model.number="topTrim" type="number" :min="0" size="xs" /></label>
             </div>
-            <label class="text-[10px] text-[#94a3b8]">输出名称<UInput v-model="outputName" size="sm" /></label>
-            <label class="text-[10px] text-[#94a3b8]">FPS<UInput v-model.number="fps" type="number" :min="1" :max="120" size="sm" /></label>
+            <label class="text-[10px] text-[#94a3b8]">输出名称<UiInput v-model="outputName" size="sm" /></label>
+            <label class="text-[10px] text-[#94a3b8]">FPS<UiInput v-model.number="fps" type="number" :min="1" :max="120" size="sm" /></label>
             <div class="rounded-lg border border-[#26313a] bg-[#0b1016] p-3"><p class="text-[11px] font-black text-[#5eead4]">{{ durationLabel }}</p><p class="mt-1 text-[9px] text-[#64748b]">H.264 · 无声 MP4 · {{ frames[0]?.width || 0 }}×{{ frames[0]?.height || 0 }}</p></div>
-            <div v-if="isGenerating || error" class="grid gap-2"><UProgress :model-value="progress" /><p class="text-[10px]" :class="error ? 'text-[#fca5a5]' : 'text-[#94a3b8]'">{{ error || status }}</p></div>
+            <div v-if="isGenerating || error" class="grid gap-2"><UiProgress :model-value="progress" /><p class="text-[10px]" :class="error ? 'text-[#fca5a5]' : 'text-[#94a3b8]'">{{ error || status }}</p></div>
           </aside>
         </div>
-        <footer class="flex items-center justify-between gap-3 border-t border-[#222b34] px-5 py-4"><span class="text-[10px] text-[#64748b]">生成结果会加入素材库，不自动放入时间线。</span><div class="flex gap-2"><UButton v-if="isGenerating" color="error" variant="outline" type="button" @click="emit('cancel')">取消</UButton><UButton color="primary" type="button" :disabled="!canGenerate" @click="submit"><Play :size="14" />{{ isGenerating ? '生成中…' : '生成视频' }}</UButton></div></footer>
+        <footer class="flex items-center justify-between gap-3 border-t border-[#222b34] px-5 py-4"><span class="text-[10px] text-[#64748b]">生成结果会加入素材库，不自动放入时间线。</span><div class="flex gap-2"><UiButton v-if="isGenerating" color="error" variant="outline" type="button" @click="emit('cancel')">取消</UiButton><UiButton color="primary" type="button" :disabled="!canGenerate" @click="submit"><Play :size="14" />{{ isGenerating ? '生成中…' : '生成视频' }}</UiButton></div></footer>
       </section>
     </template>
-  </UModal>
+  </UiModal>
 </template>
