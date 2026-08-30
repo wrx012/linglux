@@ -217,7 +217,7 @@ The editor frontend data contract lives in `src/types/editor.ts`.
 Key concepts:
 
 - `EditorSession`: session wrapper used when entering the editor.
-- `EditorProject`: durable project object with assets, tracks, duration, resolution, main track magnet preference and update time.
+- `EditorProject`: durable project object with mode, assets, tracks, duration, resolution, main track magnet preference and update time. Dynamic-comic projects additionally carry shot metadata.
 - `MediaAsset`: project asset with type, URL, optional managed file path, proxy path, fingerprint, thumbnail, waveform peaks, duration and dimensions.
 - `TimelineTrack`: video, overlay, audio or caption track with visibility/media enable flags.
 - `TimelineClip`: time-ranged asset or text clip with transform, opacity, volume/mute, effects, text style, beat markers and visibility.
@@ -236,6 +236,16 @@ Key concepts:
 - Primary-track gap closing when magnet mode is enabled.
 
 Data normalization is important because Rust manifests, previous frontend state and web fallback objects may not always include newer fields. New fields should be introduced with explicit defaults in both TypeScript helpers and Rust serde models.
+
+### Dynamic-comic domain model
+
+Dynamic-comic projects use `EditorProject.mode = "dynamicComic"` and store their creative intent in `EditorProject.dynamicComic.shots`. Normal timeline projects use `mode = "timeline"`; projects saved before the mode field existed normalize to this mode and keep their existing behavior.
+
+A `DynamicComicShot` is the durable story-editing unit. It owns a stable ID, explicit order, intended duration, normalized focal point, optional character and emotion, dialogue, pauses, start-to-end camera motion, transition choice and sound-effect asset references. A shot may link to the existing media and timeline model through `visualAssetId` and `visualClipId`.
+
+Shots do not replace timeline clips or duplicate managed media facts. The shot model records authoring intent for storyboard-oriented workflows, while timeline clips remain the source of render timing and the media core remains the owner of durable local files. Later shot-first tools must synchronize shot edits into the existing timeline rather than introduce a second rendering timeline.
+
+Dynamic-comic defaults and compatibility live behind the `normalizeEditorProject` interface in the frontend and serde defaults in the Tauri adapter. Callers should use normalized projects instead of independently filling missing shot fields. Camera motion is stored now as a start frame, end frame, preset and easing, but preview controls and FFmpeg rendering are separate follow-up capabilities.
 
 ### History Model
 

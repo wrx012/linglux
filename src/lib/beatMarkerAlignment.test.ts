@@ -48,6 +48,7 @@ function project(videoClips: TimelineClip[], audioClips: TimelineClip[], assets:
   return {
     id: "project",
     name: "Alignment",
+    mode: "timeline",
     assets,
     tracks: [track("video", "video", videoClips), track("audio", "audio", audioClips)],
     mainTrackMagnetEnabled: true,

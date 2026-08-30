@@ -123,6 +123,57 @@ export interface TimelineTrack {
   clips: TimelineClip[];
 }
 
+export type EditorProjectMode = "timeline" | "dynamicComic";
+
+export type DynamicComicCameraPreset =
+  | "static"
+  | "pushIn"
+  | "pullOut"
+  | "panLeft"
+  | "panRight"
+  | "panUp"
+  | "panDown"
+  | "impactPush";
+
+export type DynamicComicCameraEasing = "linear" | "easeIn" | "easeOut" | "easeInOut";
+
+export interface DynamicComicFrame {
+  x: number;
+  y: number;
+  scale: number;
+}
+
+export interface DynamicComicCameraMotion {
+  preset: DynamicComicCameraPreset;
+  start: DynamicComicFrame;
+  end: DynamicComicFrame;
+  easing: DynamicComicCameraEasing;
+}
+
+export interface DynamicComicShot {
+  id: string;
+  order: number;
+  visualAssetId?: string;
+  visualClipId?: string;
+  duration: number;
+  focus: {
+    x: number;
+    y: number;
+  };
+  characterId?: string;
+  dialogue: string;
+  emotion?: string;
+  pauseBefore: number;
+  pauseAfter: number;
+  cameraMotion: DynamicComicCameraMotion;
+  transition?: string;
+  soundEffectAssetIds: string[];
+}
+
+export interface DynamicComicProject {
+  shots: DynamicComicShot[];
+}
+
 export interface ExportPreset {
   id: string;
   label: string;
@@ -136,6 +187,8 @@ export interface EditorProject {
   id: string;
   name: string;
   sourceNodeId?: string;
+  mode: EditorProjectMode;
+  dynamicComic?: DynamicComicProject;
   assets: MediaAsset[];
   tracks: TimelineTrack[];
   mainTrackMagnetEnabled: boolean;
@@ -176,6 +229,7 @@ export interface EditorSessionSeed {
   assetName?: string;
   assetUrl?: string;
   duration?: number;
+  mode?: EditorProjectMode;
 }
 
 export type MediaTaskKind = "import" | "frameSequence" | "export" | "proxy" | "thumbnail" | "waveform" | "projectSave" | "ttsSetup" | "speechSynthesis";

@@ -12,6 +12,7 @@ use linglux_media_core::{
     TaskSnapshot, TaskState, TtsStatus,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -27,6 +28,8 @@ struct EditorSessionSeed {
     asset_name: Option<String>,
     asset_url: Option<String>,
     duration: Option<f64>,
+    #[serde(default)]
+    mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,12 +167,124 @@ struct EditorResolution {
     height: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DynamicComicFrame {
+    #[serde(default = "default_focus_coordinate")]
+    x: f64,
+    #[serde(default = "default_focus_coordinate")]
+    y: f64,
+    #[serde(default = "default_scale")]
+    scale: f64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum DynamicComicCameraPreset {
+    PushIn,
+    PullOut,
+    PanLeft,
+    PanRight,
+    PanUp,
+    PanDown,
+    ImpactPush,
+    #[default]
+    #[serde(other)]
+    Static,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum DynamicComicCameraEasing {
+    Linear,
+    EaseIn,
+    EaseOut,
+    #[default]
+    #[serde(other)]
+    EaseInOut,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DynamicComicCameraMotion {
+    #[serde(default)]
+    preset: DynamicComicCameraPreset,
+    #[serde(default = "default_dynamic_comic_frame")]
+    start: DynamicComicFrame,
+    #[serde(default = "default_dynamic_comic_frame")]
+    end: DynamicComicFrame,
+    #[serde(default)]
+    easing: DynamicComicCameraEasing,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DynamicComicFocus {
+    #[serde(default = "default_focus_coordinate")]
+    x: f64,
+    #[serde(default = "default_focus_coordinate")]
+    y: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DynamicComicShot {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    order: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    visual_asset_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    visual_clip_id: Option<String>,
+    #[serde(default)]
+    duration: f64,
+    #[serde(default = "default_dynamic_comic_focus")]
+    focus: DynamicComicFocus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    character_id: Option<String>,
+    #[serde(default)]
+    dialogue: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    emotion: Option<String>,
+    #[serde(default)]
+    pause_before: f64,
+    #[serde(default)]
+    pause_after: f64,
+    #[serde(default = "default_dynamic_comic_camera_motion")]
+    camera_motion: DynamicComicCameraMotion,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    transition: Option<String>,
+    #[serde(default)]
+    sound_effect_asset_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DynamicComicProject {
+    #[serde(default)]
+    shots: Vec<DynamicComicShot>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum EditorProjectMode {
+    DynamicComic,
+    #[default]
+    #[serde(other)]
+    Timeline,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct EditorProject {
     id: String,
     name: String,
     source_node_id: Option<String>,
+    #[serde(default)]
+    mode: EditorProjectMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dynamic_comic: Option<DynamicComicProject>,
     assets: Vec<MediaAsset>,
     tracks: Vec<TimelineTrack>,
     #[serde(default = "default_true")]
@@ -239,6 +354,143 @@ fn now_stamp() -> String {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_focus_coordinate() -> f64 {
+    0.5
+}
+
+fn default_scale() -> f64 {
+    1.0
+}
+
+fn default_dynamic_comic_frame() -> DynamicComicFrame {
+    DynamicComicFrame {
+        x: default_focus_coordinate(),
+        y: default_focus_coordinate(),
+        scale: default_scale(),
+    }
+}
+
+fn default_dynamic_comic_focus() -> DynamicComicFocus {
+    DynamicComicFocus {
+        x: default_focus_coordinate(),
+        y: default_focus_coordinate(),
+    }
+}
+
+fn default_dynamic_comic_camera_motion() -> DynamicComicCameraMotion {
+    DynamicComicCameraMotion {
+        preset: DynamicComicCameraPreset::default(),
+        start: default_dynamic_comic_frame(),
+        end: default_dynamic_comic_frame(),
+        easing: DynamicComicCameraEasing::default(),
+    }
+}
+
+fn normalize_editor_project(project: &mut EditorProject) {
+    match project.mode {
+        EditorProjectMode::Timeline => project.dynamic_comic = None,
+        EditorProjectMode::DynamicComic => {
+            let dynamic_comic = project
+                .dynamic_comic
+                .get_or_insert_with(DynamicComicProject::default);
+            normalize_dynamic_comic_project(dynamic_comic);
+        }
+    }
+}
+
+fn normalize_dynamic_comic_project(project: &mut DynamicComicProject) {
+    let mut used_ids = HashSet::new();
+
+    for (index, shot) in project.shots.iter_mut().enumerate() {
+        let candidate = shot.id.trim();
+        if candidate.is_empty() || used_ids.contains(candidate) {
+            shot.id = unique_dynamic_comic_shot_id(index, &used_ids);
+        } else if candidate.len() != shot.id.len() {
+            shot.id = candidate.to_string();
+        }
+        used_ids.insert(shot.id.clone());
+
+        shot.order = finite_integer_at_least(shot.order, 0.0, 0.0);
+        shot.visual_asset_id = normalize_optional_string(shot.visual_asset_id.take());
+        shot.visual_clip_id = normalize_optional_string(shot.visual_clip_id.take());
+        shot.duration = finite_at_least(shot.duration, 0.0, 0.0);
+        shot.focus.x = finite_between(shot.focus.x, 0.0, 1.0, 0.5);
+        shot.focus.y = finite_between(shot.focus.y, 0.0, 1.0, 0.5);
+        shot.pause_before = finite_at_least(shot.pause_before, 0.0, 0.0);
+        shot.pause_after = finite_at_least(shot.pause_after, 0.0, 0.0);
+        shot.character_id = normalize_optional_string(shot.character_id.take());
+        shot.emotion = normalize_optional_string(shot.emotion.take());
+        shot.transition = normalize_optional_string(shot.transition.take());
+        normalize_dynamic_comic_frame(&mut shot.camera_motion.start);
+        normalize_dynamic_comic_frame(&mut shot.camera_motion.end);
+        shot.sound_effect_asset_ids = shot
+            .sound_effect_asset_ids
+            .iter()
+            .filter_map(|id| {
+                let id = id.trim();
+                (!id.is_empty()).then(|| id.to_string())
+            })
+            .collect();
+    }
+
+    project
+        .shots
+        .sort_by(|left, right| left.order.total_cmp(&right.order));
+}
+
+fn normalize_dynamic_comic_frame(frame: &mut DynamicComicFrame) {
+    frame.x = finite_between(frame.x, 0.0, 1.0, 0.5);
+    frame.y = finite_between(frame.y, 0.0, 1.0, 0.5);
+    frame.scale = finite_at_least(frame.scale, 0.01, 1.0);
+}
+
+fn finite_at_least(value: f64, minimum: f64, fallback: f64) -> f64 {
+    if value.is_finite() {
+        value.max(minimum)
+    } else {
+        fallback
+    }
+}
+
+fn finite_integer_at_least(value: f64, minimum: f64, fallback: f64) -> f64 {
+    if value.is_finite() {
+        value.trunc().max(minimum)
+    } else {
+        fallback
+    }
+}
+
+fn finite_between(value: f64, minimum: f64, maximum: f64, fallback: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(minimum, maximum)
+    } else {
+        fallback
+    }
+}
+
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let value = value.trim();
+        (!value.is_empty()).then(|| value.to_string())
+    })
+}
+
+fn unique_dynamic_comic_shot_id(index: usize, used_ids: &HashSet<String>) -> String {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let mut suffix = 0_u32;
+
+    loop {
+        let id = format!("shot-{nonce}-{index}-{suffix}");
+        if !used_ids.contains(&id) {
+            return id;
+        }
+        suffix = suffix.saturating_add(1);
+    }
 }
 
 fn default_text_background_width() -> f64 {
@@ -1343,6 +1595,13 @@ fn export_project_with_ffmpeg(
 fn create_mock_project(seed: EditorSessionSeed, now: String) -> EditorProject {
     let source_node_id = seed.source_node_id;
     let duration = seed.duration.unwrap_or(12.0).max(1.0);
+    let mode = if seed.mode.as_deref() == Some("dynamicComic") {
+        EditorProjectMode::DynamicComic
+    } else {
+        EditorProjectMode::Timeline
+    };
+    let dynamic_comic =
+        (mode == EditorProjectMode::DynamicComic).then(DynamicComicProject::default);
 
     EditorProject {
         id: format!("project-{}", now.replace("unix-", "")),
@@ -1351,6 +1610,8 @@ fn create_mock_project(seed: EditorSessionSeed, now: String) -> EditorProject {
             .map(|id| format!("剪辑会话 · {id}"))
             .unwrap_or_else(|| "Linglux 剪辑工程".to_string()),
         source_node_id,
+        mode,
+        dynamic_comic,
         assets: vec![],
         tracks: vec![
             TimelineTrack {
@@ -1435,13 +1696,14 @@ fn create_edit_session(core: State<'_, MediaCore>, seed: EditorSessionSeed) -> E
     let saved_at = restored
         .as_ref()
         .map(|document| format!("unix-{}", document.saved_at_ms / 1_000));
-    let project = restored
+    let mut project = restored
         .and_then(|document| serde_json::from_value::<EditorProject>(document.project).ok())
         .unwrap_or_else(|| {
             let mut project = create_mock_project(seed, now.clone());
             project.id = project_id;
             project
         });
+    normalize_editor_project(&mut project);
 
     EditSession {
         id: format!("session-{}", now.replace("unix-", "")),
@@ -1458,7 +1720,10 @@ fn load_edit_project(
     project_id: String,
 ) -> Result<EditorProject, String> {
     if let Some(document) = core.projects().load(&project_id) {
-        return serde_json::from_value(document.project).map_err(|error| error.to_string());
+        let mut project: EditorProject =
+            serde_json::from_value(document.project).map_err(|error| error.to_string())?;
+        normalize_editor_project(&mut project);
+        return Ok(project);
     }
 
     Err(format!("找不到工程 {project_id}"))
@@ -1472,6 +1737,7 @@ async fn save_edit_project(
 ) -> Result<EditorProject, String> {
     let core = core.inner().clone();
     let project_id = project.id.clone();
+    normalize_editor_project(&mut project);
     project.updated_at = now_stamp();
     let project_for_save = project.clone();
 
@@ -1766,6 +2032,202 @@ fn reveal_export_file(app: AppHandle, output_path: String) -> Result<(), String>
     let path = canonical_export_file_path(&app, &output_path)?;
 
     open_file_manager_for_path(&path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn legacy_project_json() -> serde_json::Value {
+        serde_json::json!({
+            "id": "legacy-project",
+            "name": "Legacy project",
+            "sourceNodeId": null,
+            "assets": [],
+            "tracks": [],
+            "mainTrackMagnetEnabled": true,
+            "duration": 0.0,
+            "fps": 30,
+            "resolution": { "width": 1920, "height": 1080 },
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z"
+        })
+    }
+
+    #[test]
+    fn legacy_editor_project_defaults_to_timeline_mode() {
+        let project: EditorProject =
+            serde_json::from_value(legacy_project_json()).expect("deserialize legacy project");
+
+        assert_eq!(project.mode, EditorProjectMode::Timeline);
+        assert!(project.dynamic_comic.is_none());
+    }
+
+    #[test]
+    fn dynamic_comic_project_round_trips_all_shot_metadata() {
+        let mut value = legacy_project_json();
+        value["mode"] = serde_json::json!("dynamicComic");
+        value["dynamicComic"] = serde_json::json!({
+            "shots": [{
+                "id": "shot-hero-arrives",
+                "order": 0,
+                "visualAssetId": "asset-panel-04",
+                "visualClipId": "clip-panel-04",
+                "duration": 4.2,
+                "focus": { "x": 0.62, "y": 0.31 },
+                "characterId": "character-lin-xia",
+                "dialogue": "你为什么现在才回来？",
+                "emotion": "serious",
+                "pauseBefore": 0.25,
+                "pauseAfter": 0.4,
+                "cameraMotion": {
+                    "preset": "pushIn",
+                    "start": { "x": 0.5, "y": 0.5, "scale": 1.0 },
+                    "end": { "x": 0.62, "y": 0.31, "scale": 1.25 },
+                    "easing": "easeInOut"
+                },
+                "transition": "hardCut",
+                "soundEffectAssetIds": ["asset-rain", "asset-door"]
+            }]
+        });
+
+        let mut project: EditorProject =
+            serde_json::from_value(value).expect("deserialize project");
+        normalize_editor_project(&mut project);
+        let expected_dynamic_comic = project.dynamic_comic.clone();
+        let root = std::env::temp_dir().join(format!(
+            "linglux-dynamic-comic-round-trip-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let store = linglux_media_core::ProjectStore::new(&root).expect("create project store");
+        store
+            .save_json(
+                "dynamic-comic-project",
+                serde_json::to_value(project).expect("serialize project for save"),
+            )
+            .expect("save project");
+        let mut reloaded: EditorProject = serde_json::from_value(
+            store
+                .load("dynamic-comic-project")
+                .expect("load project")
+                .project,
+        )
+        .expect("deserialize saved project");
+        normalize_editor_project(&mut reloaded);
+        assert_eq!(reloaded.dynamic_comic, expected_dynamic_comic);
+        let serialized = serde_json::to_value(reloaded).expect("serialize reloaded project");
+        let shot = &serialized["dynamicComic"]["shots"][0];
+
+        assert_eq!(serialized["mode"], "dynamicComic");
+        assert_eq!(shot["id"], "shot-hero-arrives");
+        assert_eq!(shot["visualAssetId"], "asset-panel-04");
+        assert_eq!(shot["visualClipId"], "clip-panel-04");
+        assert_eq!(shot["duration"], 4.2);
+        assert_eq!(shot["focus"], serde_json::json!({ "x": 0.62, "y": 0.31 }));
+        assert_eq!(shot["characterId"], "character-lin-xia");
+        assert_eq!(shot["dialogue"], "你为什么现在才回来？");
+        assert_eq!(shot["emotion"], "serious");
+        assert_eq!(shot["pauseBefore"], 0.25);
+        assert_eq!(shot["pauseAfter"], 0.4);
+        assert_eq!(shot["cameraMotion"]["preset"], "pushIn");
+        assert_eq!(shot["transition"], "hardCut");
+        assert_eq!(
+            shot["soundEffectAssetIds"],
+            serde_json::json!(["asset-rain", "asset-door"])
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn dynamic_comic_shot_defaults_optional_metadata() {
+        let mut value = legacy_project_json();
+        value["mode"] = serde_json::json!("dynamicComic");
+        value["dynamicComic"] = serde_json::json!({ "shots": [{ "id": "shot-1" }] });
+
+        let project: EditorProject = serde_json::from_value(value).expect("deserialize project");
+        let serialized = serde_json::to_value(project).expect("serialize project");
+        let shot = &serialized["dynamicComic"]["shots"][0];
+
+        assert_eq!(shot["focus"], serde_json::json!({ "x": 0.5, "y": 0.5 }));
+        assert_eq!(shot["dialogue"], "");
+        assert_eq!(shot["pauseBefore"], 0.0);
+        assert_eq!(shot["pauseAfter"], 0.0);
+        assert_eq!(shot["cameraMotion"]["preset"], "static");
+        assert_eq!(shot["soundEffectAssetIds"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn dynamic_comic_mode_always_has_normalized_payload() {
+        let mut value = legacy_project_json();
+        value["mode"] = serde_json::json!("dynamicComic");
+
+        let mut project: EditorProject =
+            serde_json::from_value(value).expect("deserialize project");
+        normalize_editor_project(&mut project);
+
+        assert_eq!(project.mode, EditorProjectMode::DynamicComic);
+        assert_eq!(project.dynamic_comic, Some(DynamicComicProject::default()));
+    }
+
+    #[test]
+    fn dynamic_comic_normalization_matches_frontend_invariants() {
+        let mut value = legacy_project_json();
+        value["mode"] = serde_json::json!("dynamicComic");
+        value["dynamicComic"] = serde_json::json!({
+            "shots": [
+                {
+                    "id": " shot-existing ",
+                    "order": 4.8,
+                    "duration": -2.0,
+                    "focus": { "x": 2.0, "y": -1.0 },
+                    "pauseBefore": -0.5,
+                    "pauseAfter": -0.5,
+                    "cameraMotion": {
+                        "preset": "unknownPreset",
+                        "start": { "x": 2.0, "y": -1.0, "scale": 0.0 },
+                        "end": { "x": 0.4, "y": 0.6, "scale": 1.2 },
+                        "easing": "unknownEasing"
+                    },
+                    "soundEffectAssetIds": [" asset-rain ", " "]
+                },
+                { "id": "shot-existing", "order": 2.0 }
+            ]
+        });
+
+        let mut project: EditorProject =
+            serde_json::from_value(value).expect("deserialize project");
+        normalize_editor_project(&mut project);
+        let serialized = serde_json::to_value(project).expect("serialize project");
+        let shots = serialized["dynamicComic"]["shots"]
+            .as_array()
+            .expect("shots array");
+
+        assert_eq!(shots[0]["order"], 2.0);
+        assert_ne!(shots[0]["id"], "shot-existing");
+        assert!(shots[0]["id"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("shot-"));
+        assert_eq!(shots[1]["id"], "shot-existing");
+        assert_eq!(shots[1]["order"], 4.0);
+        assert_eq!(shots[1]["duration"], 0.0);
+        assert_eq!(shots[1]["focus"], serde_json::json!({ "x": 1.0, "y": 0.0 }));
+        assert_eq!(shots[1]["pauseBefore"], 0.0);
+        assert_eq!(shots[1]["pauseAfter"], 0.0);
+        assert_eq!(shots[1]["cameraMotion"]["preset"], "static");
+        assert_eq!(shots[1]["cameraMotion"]["easing"], "easeInOut");
+        assert_eq!(
+            shots[1]["cameraMotion"]["start"],
+            serde_json::json!({ "x": 1.0, "y": 0.0, "scale": 0.01 })
+        );
+        assert_eq!(
+            shots[1]["soundEffectAssetIds"],
+            serde_json::json!(["asset-rain"])
+        );
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
