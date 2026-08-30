@@ -1,0 +1,187 @@
+name: Copilot review status
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: copilot-review-status-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  mark-pending:
+    if: github.event_name == 'pull_request_target' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark Copilot review as pending
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.pull_request.number;
+            const labels = {
+              "review: pending": {
+                color: "FBCA04",
+                description: "Waiting for the current Copilot code review to finish.",
+              },
+              "review: complete": {
+                color: "0E8A16",
+                description: "Copilot completed the current review without inline comments; human review is still required.",
+              },
+              "review: needs attention": {
+                color: "D93F0B",
+                description: "Copilot left inline comments that require human attention.",
+              },
+            };
+
+            async function ensureLabel(name, definition) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name,
+                  color: definition.color,
+                  description: definition.description,
+                });
+              }
+            }
+
+            async function removeLabel(name) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+
+            for (const [name, definition] of Object.entries(labels)) {
+              await ensureLabel(name, definition);
+            }
+            await removeLabel("review: complete");
+            await removeLabel("review: needs attention");
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number,
+              labels: ["review: pending"],
+            });
+
+  publish-review-result:
+    if: >-
+      github.event_name == 'pull_request_review' &&
+      github.event.review.user.login == 'copilot-pull-request-reviewer[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label and announce Copilot review result
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = context.payload.pull_request.number;
+            const issue_number = pull_number;
+            const review = context.payload.review;
+            const reviewId = review.id;
+            const marker = `<!-- copilot-review:${reviewId} -->`;
+            const labels = {
+              "review: pending": {
+                color: "FBCA04",
+                description: "Waiting for the current Copilot code review to finish.",
+              },
+              "review: complete": {
+                color: "0E8A16",
+                description: "Copilot completed the current review without inline comments; human review is still required.",
+              },
+              "review: needs attention": {
+                color: "D93F0B",
+                description: "Copilot left inline comments that require human attention.",
+              },
+            };
+
+            async function ensureLabel(name, definition) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name,
+                  color: definition.color,
+                  description: definition.description,
+                });
+              }
+            }
+
+            async function removeLabel(name) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+
+            for (const [name, definition] of Object.entries(labels)) {
+              await ensureLabel(name, definition);
+            }
+
+            const reviewComments = await github.paginate(
+              "GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/comments",
+              { owner, repo, pull_number, review_id: reviewId, per_page: 100 },
+            );
+            const commentCount = reviewComments.length;
+            const resultLabel = commentCount > 0
+              ? "review: needs attention"
+              : "review: complete";
+
+            for (const name of Object.keys(labels)) {
+              if (name !== resultLabel) await removeLabel(name);
+            }
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number,
+              labels: [resultLabel],
+            });
+
+            const existingComments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number, per_page: 100 },
+            );
+            if (existingComments.some((comment) => comment.body?.includes(marker))) {
+              core.info(`Review ${reviewId} was already announced.`);
+              return;
+            }
+
+            const shortSha = String(review.commit_id || context.payload.pull_request.head.sha).slice(0, 7);
+            const resultText = commentCount > 0
+              ? `发现 **${commentCount}** 条 inline comment，需要人工确认。`
+              : "本轮没有 inline comment；这不代表 PR 已获批准，仍需人工检查。";
+            const reviewLink = review.html_url
+              ? `[查看 Copilot review](${review.html_url})`
+              : "查看本 PR 的 Copilot review";
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body: [
+                marker,
+                `@Bald-M Copilot 已完成对 \`${shortSha}\` 的审查。`,
+                "",
+                `${resultText} ${reviewLink}。`,
+                "",
+                `自动标签：\`${resultLabel}\``,
+              ].join("\n"),
+            });
