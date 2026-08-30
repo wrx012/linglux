@@ -47,7 +47,7 @@ function updateOpen(open: boolean) {
 </script>
 
 <template>
-  <UModal
+  <UiModal
     :open="open"
     :close="false"
     :dismissible="!isExporting"
@@ -63,9 +63,9 @@ function updateOpen(open: boolean) {
           <p class="mb-1 text-[10px] font-extrabold leading-3 text-[#4b5563]">EXPORT</p>
           <h2 id="editor-export-title" aria-hidden="true" class="truncate text-[16px] font-bold leading-5 text-highlighted">导出剪辑结果</h2>
         </div>
-        <UButton class="grid size-8 place-items-center rounded-lg bg-[#15151a] p-0 text-[#9ca3af] ring-[#222228] hover:text-white" type="button" color="neutral" variant="outline" title="关闭导出" :disabled="isExporting" @click="emit('close')">
+        <UiButton class="grid size-8 place-items-center rounded-lg bg-[#15151a] p-0 text-[#9ca3af] ring-[#222228] hover:text-white" type="button" color="neutral" variant="outline" title="关闭导出" :disabled="isExporting" @click="emit('close')">
           <X :size="16" />
-        </UButton>
+        </UiButton>
       </header>
 
       <section class="grid gap-3 overflow-y-auto px-5 py-5">
@@ -94,7 +94,7 @@ function updateOpen(open: boolean) {
             <span class="truncate text-[11px] font-black text-[#d1d5db]">{{ statusLabel }}</span>
             <span class="font-mono text-[11px] font-black" :class="exportError ? 'text-[#fca5a5]' : hasExportResult ? 'text-[#34d399]' : 'text-[#5eead4]'">{{ Math.round(normalizedProgress) }}%</span>
           </div>
-          <UProgress :model-value="normalizedProgress" :max="100" :color="progressColor" size="sm" class="rounded-full bg-[#070708] ring-1 ring-[#27313a]" />
+          <UiProgress :model-value="normalizedProgress" :max="100" :color="progressColor" size="sm" class="rounded-full bg-[#070708] ring-1 ring-[#27313a]" />
           <p class="min-h-4 truncate text-[10px] font-semibold text-[#6b7280]">
             {{ hasExportResult ? "文件已导出，确认后回写到工作流。" : isExporting ? "请保持 Linglux 打开，正在写入本地文件。" : "可以重新选择预设后再次导出。" }}
           </p>
@@ -110,21 +110,21 @@ function updateOpen(open: boolean) {
           {{ exportError || revealError || (hasExportResult ? "导出完成，可回到工作流继续编排。" : "使用本机 FFmpeg 导出到 Linglux 应用数据目录。") }}
         </span>
         <div class="flex flex-wrap items-center justify-end gap-2">
-          <UButton v-if="isExporting" class="h-9 min-w-[92px] justify-center bg-[#2a151a] px-3 text-[12px] font-black text-[#fca5a5] ring-[#4b2730] hover:bg-[#35191f] hover:ring-[#ef4444] hover:text-white" type="button" color="error" variant="outline" @click="emit('cancel')">
+          <UiButton v-if="isExporting" class="h-9 min-w-[92px] justify-center bg-[#2a151a] px-3 text-[12px] font-black text-[#fca5a5] ring-[#4b2730] hover:bg-[#35191f] hover:ring-[#ef4444] hover:text-white" type="button" color="error" variant="outline" @click="emit('cancel')">
             <X :size="14" />
             取消导出
-          </UButton>
-          <UButton v-if="hasExportResult && exportOutputPath" class="h-9 min-w-[104px] justify-center bg-[#15151a] px-3 text-[12px] font-black text-[#d1d5db] ring-[#25303a] hover:bg-[#1d1d22] hover:ring-[#10b981]/70 hover:text-white" type="button" color="neutral" variant="outline" @click="emit('openLocation')">
+          </UiButton>
+          <UiButton v-if="hasExportResult && exportOutputPath" class="h-9 min-w-[104px] justify-center bg-[#15151a] px-3 text-[12px] font-black text-[#d1d5db] ring-[#25303a] hover:bg-[#1d1d22] hover:ring-[#10b981]/70 hover:text-white" type="button" color="neutral" variant="outline" @click="emit('openLocation')">
             <FolderOpen :size="14" />
             打开文件夹
-          </UButton>
-          <UButton class="h-9 min-w-[116px] justify-center bg-[#10b981] px-4 text-[12px] font-black text-[#070708] hover:bg-[#18c991]" type="button" :disabled="isExporting" @click="hasExportResult ? emit('finish') : emit('export')">
+          </UiButton>
+          <UiButton class="h-9 min-w-[116px] justify-center bg-[#10b981] px-4 text-[12px] font-black text-[#070708] hover:bg-[#18c991]" type="button" :disabled="isExporting" @click="hasExportResult ? emit('finish') : emit('export')">
             <Download :size="14" />
             {{ hasExportResult ? "回到工作流" : isExporting ? "导出中..." : "导出" }}
-          </UButton>
+          </UiButton>
         </div>
       </footer>
     </section>
     </template>
-  </UModal>
+  </UiModal>
 </template>

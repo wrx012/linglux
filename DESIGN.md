@@ -4,6 +4,8 @@ Linglux 是一个 desktop-first 的 AI 视频创作与剪辑工作台。它把�
 
 本文档描述当前源码实际状态和下一阶段设计方向。源码可能比早期产品设想更靠前；修改功能前以源码为准，并在文档中补齐差异。
 
+项目当前处于 **pre-alpha / Unreleased** 阶段。`package.json` 中的版本用于本地构建标识，不代表已经发布；公开版本、日期和迁移说明只在实际发布时写入 `CHANGELOG.md`。
+
 ## Product North Star
 
 Linglux 面向希望在本地桌面环境中完成专业视频创作的用户：
@@ -46,9 +48,9 @@ Frontend:
 
 - Vue 3 + TypeScript + Vite。
 - Vue Composition API，主要组件使用 `<script setup lang="ts">`。
-- Nuxt UI Vue/Vite 插件提供基础 UI 组件和主题变量。
+- 本地 shadcn-vue 风格组件层提供基础 UI 组件，交互 primitives 基于 Reka UI，变体由 CVA 管理。
 - `@lucide/vue` 用于常见动作图标。
-- Tailwind CSS v4 通过 Nuxt UI/Tailwind 栈参与样式构建。
+- Tailwind CSS v4 直接通过 Vite 参与样式构建。
 - pnpm 和 `pnpm-lock.yaml` 是当前包管理约定。
 
 Desktop host:
@@ -70,12 +72,14 @@ External runtime:
 关键文件和目录：
 
 - `README.md`: 项目启动、开发、构建、故障排查和平台要求。
+- `CHANGELOG.md`: 尚未发布及已发布的用户可见变更，并关联对应 PR、Issue 和贡献者。
 - `DESIGN.md`: 当前产品和架构设计文档。
 - `AGENTS.md`: 给代码代理的仓库操作指南。
 - `MEDIA_CORE.md`: 媒体内核设计、目录布局、任务模型和验证方法。
 - `package.json`: pnpm scripts 与前端/Tauri 依赖。
-- `vite.config.ts`: Vite、Vue、Nuxt UI 插件与 dev server 配置。
-- `src/main.ts`: Vue app 入口，注册 Nuxt UI 插件。
+- `vite.config.ts`: Vite、Vue 与 dev server 配置。
+- `src/main.ts`: Vue app 入口，注册本地 shadcn-vue 组件层。
+- `src/components/ui/index.ts`: 本地 UI primitives、变体与浮层组件。
 - `src/App.vue`: 应用外壳和工作流工作区。
 - `src/style.css`: 全局样式、Tailwind import、画布/编辑器工具样式。
 - `src/types/editor.ts`: 剪辑器前端数据契约。
@@ -99,12 +103,17 @@ External runtime:
 flowchart TD
   App["src/App.vue\nWorkflow shell"] --> Workflow["Node workflow\nCanvas, palette, camera, API settings"]
   App --> Editor["LingluxEditor.vue\nTimeline editor orchestration"]
+  App --> UI["Local Ui* module\nStable app-facing interface"]
 
   Editor --> Bin["MediaBin\nImport, search, presets"]
   Editor --> Preview["PreviewMonitor\nVideo, audio, captions"]
   Editor --> Timeline["TimelinePanel\nTracks, clips, waveform"]
   Editor --> Inspector["InspectorPanel\nClip parameters"]
   Editor --> ExportDialog["ExportDialog\nPreset, progress, location"]
+  Editor --> UI
+
+  UI --> Reka["Reka UI\nInternal interaction adapter"]
+  UI --> Tokens["Tailwind + semantic tokens\nInternal styling implementation"]
 
   Editor --> Tauri["Tauri commands\ninvoke + Channel<TaskEvent>"]
   Agent["Editor Agent panel\nChat + plan confirmation"] --> Tauri
@@ -492,7 +501,7 @@ Security rules:
 - Scope file system, shell, network and secret-storage access narrowly.
 - Keep provider secrets in the OS credential vault; JSON sidecars, localStorage, task journals, logs, and project/export data may contain metadata or masked state only.
 
-## Styling And Interaction Direction
+## UI Module And Interaction Direction
 
 Linglux should feel like a dense professional desktop workstation:
 
@@ -504,10 +513,16 @@ Linglux should feel like a dense professional desktop workstation:
 - Stable panel dimensions.
 - No marketing-style landing sections inside the app surface.
 
-Frontend conventions:
+`src/components/ui/index.ts` is the application-facing UI module. Its globally registered `Ui*` components are the stable interface used by workflow and editor callers; Reka UI, CVA, class merging, semantic tokens and overlay mechanics are implementation details behind that seam. This keeps interaction fixes local and prevents third-party component contracts from spreading through product modules.
+
+UI module rules:
 
 - Use Vue Composition API and TypeScript types.
-- Prefer existing Nuxt UI components for dialogs, popovers, buttons and form controls.
+- Use the local `Ui*` interface for dialogs, popovers, buttons and form controls.
+- Keep direct Reka UI imports inside the UI module unless a new interaction cannot be expressed by the existing interface.
+- Extend an existing `Ui*` interface before adding one-off wrappers in product modules.
+- Preserve named slots, model events, focus behavior, dismissal rules and overlay ordering when changing an adapter.
+- Cover shared interface behavior in `src/components/ui/migrationParity.test.ts` rather than asserting unrelated product behavior there.
 - Use lucide icons for common tool actions.
 - Preserve semantic labels, useful `aria-label`s and button `type="button"`.
 - Avoid broad palette rewrites unless the product direction explicitly changes.
@@ -534,7 +549,7 @@ Product gaps:
 - Project browser, recent files and missing media recovery are not complete.
 - Export queue UI and historical task log UI are minimal.
 - Provider cost/progress accounting is not implemented.
-- Production secret storage is not implemented.
+- Credential-vault storage is implemented, but provider-specific recovery, migration diagnostics and lifecycle UX remain incomplete.
 
 Technical gaps:
 
@@ -582,7 +597,7 @@ Frontend and shared TypeScript validation.
 pnpm test
 ```
 
-Frontend unit tests for Agent plan execution, TTS helpers, and beat-marker alignment.
+Frontend unit tests for Agent plan execution, TTS helpers, beat-marker alignment, and shared UI interface parity.
 
 ```sh
 cargo check --manifest-path src-tauri/Cargo.toml
@@ -615,4 +630,5 @@ Documentation-only edits do not require a build unless commands, configuration a
 - Keep Tauri commands small and typed.
 - Keep permissions narrow.
 - Keep provider integrations explicit rather than hidden in UI components.
+- Keep third-party UI adapters behind the local `Ui*` interface.
 - Prefer real source state over stale docs, then update docs to match.

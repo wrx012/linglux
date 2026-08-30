@@ -1,9 +1,90 @@
 @import "tailwindcss";
-@import "@nuxt/ui";
 
 @theme {
   --font-sans:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --color-primary: var(--ui-primary);
+  --color-secondary: var(--ui-secondary);
+  --color-success: var(--ui-success);
+  --color-info: var(--ui-info);
+  --color-warning: var(--ui-warning);
+  --color-error: var(--ui-error);
+  --color-dimmed: var(--ui-text-dimmed);
+  --color-muted: var(--ui-bg-muted);
+  --color-toned: var(--ui-text-toned);
+  --color-default: var(--ui-bg);
+  --color-highlighted: var(--ui-text-highlighted);
+  --color-inverted: var(--ui-text-inverted);
+  --color-muted-bg: var(--ui-bg-muted);
+  --color-elevated: var(--ui-bg-elevated);
+  --color-accented: var(--ui-bg-accented);
+  --color-border: var(--ui-border);
+}
+
+/* Semantic surface utilities intentionally override Tailwind's same-name text colors. */
+html .bg-default {
+  background-color: var(--ui-bg);
+}
+
+html .bg-muted {
+  background-color: var(--ui-bg-muted);
+}
+
+html .bg-inverted {
+  background-color: var(--ui-bg-inverted);
+}
+
+html .text-default {
+  color: var(--ui-text);
+}
+
+html .text-muted {
+  color: var(--ui-text-muted);
+}
+
+html .border-default {
+  border-color: var(--ui-border);
+}
+
+html .border-muted {
+  border-color: var(--ui-border-muted);
+}
+
+html .border-accented {
+  border-color: var(--ui-border-accented);
+}
+
+/* Contextual shadcn tokens that cannot share one Tailwind color name. */
+@utility bg-default {
+  background-color: var(--ui-bg);
+}
+
+@utility bg-muted {
+  background-color: var(--ui-bg-muted);
+}
+
+@utility bg-inverted {
+  background-color: var(--ui-bg-inverted);
+}
+
+@utility border-default {
+  border-color: var(--ui-border);
+}
+
+@utility border-muted {
+  border-color: var(--ui-border-muted);
+}
+
+@utility border-accented {
+  border-color: var(--ui-border-accented);
+}
+
+@utility ring-default {
+  --tw-ring-color: var(--ui-border);
+}
+
+@utility ring-accented {
+  --tw-ring-color: var(--ui-border-accented);
 }
 
 .dark {

@@ -106,12 +106,12 @@ function confirmClear() {
         <strong class="block truncate text-[12px] font-black">Linglux Agent</strong>
         <span class="block truncate text-[9px] font-semibold text-[#748096]">只生成受控计划，不操作鼠标</span>
       </span>
-      <UButton color="neutral" variant="ghost" square size="xs" type="button" aria-label="清空 AI 对话" :disabled="conversation.messages.length === 0 || isRunning" @click="confirmClear">
+      <UiButton color="neutral" variant="ghost" square size="xs" type="button" aria-label="清空 AI 对话" :disabled="conversation.messages.length === 0 || isRunning" @click="confirmClear">
         <Trash2 :size="13" />
-      </UButton>
-      <UButton color="neutral" variant="ghost" square size="xs" type="button" aria-label="关闭 AI 剪辑助手" @click="emit('close')">
+      </UiButton>
+      <UiButton color="neutral" variant="ghost" square size="xs" type="button" aria-label="关闭 AI 剪辑助手" @click="emit('close')">
         <X :size="14" />
-      </UButton>
+      </UiButton>
     </header>
 
     <div ref="messageScroller" class="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-4">
@@ -144,7 +144,7 @@ function confirmClear() {
         <section v-if="message.plan" class="mt-3 overflow-hidden rounded-lg border border-[#315249] bg-[#0b1d1b]">
           <div class="flex items-center justify-between gap-2 border-b border-[#29453f] px-3 py-2">
             <strong class="text-[9px] font-black uppercase tracking-[0.14em] text-[#5eead4]">剪辑计划</strong>
-            <UBadge
+            <UiBadge
               :color="planState(message.plan, message.planState) === 'applied' ? 'success' : planState(message.plan, message.planState) === 'pending' ? 'warning' : 'neutral'"
               variant="subtle"
               size="sm"
@@ -159,7 +159,7 @@ function confirmClear() {
                       ? "已过期"
                       : "待确认"
               }}
-            </UBadge>
+            </UiBadge>
           </div>
           <ol class="space-y-1.5 px-3 py-2.5">
             <li v-for="(description, index) in planDescriptions(message.plan)" :key="`${message.plan.id}-${index}`" class="flex gap-2 text-[9px] font-semibold leading-4 text-[#aab7c8]">
@@ -172,14 +172,14 @@ function confirmClear() {
             <span>{{ message.plan.warnings.join("；") }}</span>
           </div>
           <div v-if="planState(message.plan, message.planState) === 'pending'" class="grid grid-cols-2 gap-2 border-t border-[#29453f] p-2">
-            <UButton color="neutral" variant="outline" size="xs" type="button" class="justify-center text-[9px]" :disabled="isRunning" @click="emit('rejectPlan', message.plan)">
+            <UiButton color="neutral" variant="outline" size="xs" type="button" class="justify-center text-[9px]" :disabled="isRunning" @click="emit('rejectPlan', message.plan)">
               <Ban :size="12" />
               拒绝
-            </UButton>
-            <UButton color="primary" variant="solid" size="xs" type="button" class="justify-center text-[9px] font-black" :disabled="isRunning" @click="emit('applyPlan', message.plan)">
+            </UiButton>
+            <UiButton color="primary" variant="solid" size="xs" type="button" class="justify-center text-[9px] font-black" :disabled="isRunning" @click="emit('applyPlan', message.plan)">
               <Check :size="12" />
               应用计划
-            </UButton>
+            </UiButton>
           </div>
           <p v-else-if="planState(message.plan, message.planState) === 'stale'" class="border-t border-[#5b3a2a] bg-[#271711] px-3 py-2 text-[8px] font-bold text-[#fb923c]">
             时间线已变化，请重新发送指令生成新计划。
@@ -210,15 +210,15 @@ function confirmClear() {
           @keydown="handlePromptKeydown"
         ></textarea>
         <div class="flex items-center justify-between gap-2 pt-1">
-          <UButton color="neutral" variant="ghost" size="xs" type="button" class="text-[9px]" @click="emit('openSettings')">
+          <UiButton color="neutral" variant="ghost" size="xs" type="button" class="text-[9px]" @click="emit('openSettings')">
             模型设置
-          </UButton>
-          <UButton v-if="isRunning" color="error" variant="soft" square size="xs" type="button" aria-label="停止 AI 请求" @click="emit('cancel')">
+          </UiButton>
+          <UiButton v-if="isRunning" color="error" variant="soft" square size="xs" type="button" aria-label="停止 AI 请求" @click="emit('cancel')">
             <Square :size="12" />
-          </UButton>
-          <UButton v-else color="primary" variant="solid" square size="xs" type="button" aria-label="发送 AI 剪辑指令" :disabled="!prompt.trim() || !isDesktop" @click="submitPrompt">
+          </UiButton>
+          <UiButton v-else color="primary" variant="solid" square size="xs" type="button" aria-label="发送 AI 剪辑指令" :disabled="!prompt.trim() || !isDesktop" @click="submitPrompt">
             <Send :size="13" />
-          </UButton>
+          </UiButton>
         </div>
       </div>
       <p class="mt-2 text-center text-[8px] font-semibold text-[#4f5b6d]">Enter 发送 · Shift+Enter 换行 · 应用前始终预览</p>

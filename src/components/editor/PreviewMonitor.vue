@@ -948,9 +948,9 @@ function clamp(value: number, min: number, max: number) {
           <Video :size="14" class="text-[#60a5fa]" />
           {{ activePreviewResolution.width }}x{{ activePreviewResolution.height }}
         </div>
-        <UButton v-if="activePreviewSource && !hasPreviewError" color="neutral" variant="soft" square size="sm" class="absolute right-5 top-5 bg-black/35" type="button" aria-label="全屏预览">
+        <UiButton v-if="activePreviewSource && !hasPreviewError" color="neutral" variant="soft" square size="sm" class="absolute right-5 top-5 bg-black/35" type="button" aria-label="全屏预览">
           <Maximize2 :size="15" />
-        </UButton>
+        </UiButton>
 
         <div v-if="activePreviewSource && !hasPreviewError" class="absolute bottom-4 left-5 max-w-[min(460px,calc(100%_-_40px))] rounded-lg bg-black/55 px-3 py-2 text-left shadow-[0_10px_24px_rgb(0_0_0/0.28)]">
           <strong class="block truncate text-[12px] font-black text-white">{{ activePreviewName }}</strong>
@@ -960,13 +960,13 @@ function clamp(value: number, min: number, max: number) {
     </div>
 
     <footer class="grid h-[52px] grid-cols-[1fr_auto_1fr] items-center border-t border-default bg-default/90 px-6 text-default backdrop-blur">
-      <UBadge color="neutral" variant="subtle" size="lg" class="w-fit min-w-0 truncate font-mono font-black">
+      <UiBadge color="neutral" variant="subtle" size="lg" class="w-fit min-w-0 truncate font-mono font-black">
         <strong class="text-[#60a5fa]">{{ formatTimecode(previewDisplayTime) }}</strong>
         <span class="mx-3 text-[#5f6b7d]">/</span>
         <span class="text-[#8993a3]">{{ formatTimecode(previewDisplayDuration) }}</span>
-      </UBadge>
+      </UiBadge>
 
-      <UButton
+      <UiButton
         color="neutral"
         variant="ghost"
         square
@@ -978,17 +978,17 @@ function clamp(value: number, min: number, max: number) {
       >
         <Pause v-if="isPlaying" :size="19" />
         <Play v-else :size="19" />
-      </UButton>
+      </UiButton>
 
       <span class="flex items-center justify-end gap-3">
-        <UButton color="neutral" variant="soft" size="md" type="button">
+        <UiButton color="neutral" variant="soft" size="md" type="button">
           Fit
           <ChevronDown :size="15" />
-        </UButton>
-        <USeparator orientation="vertical" class="h-6" />
-        <UButton color="neutral" variant="ghost" square size="md" type="button" aria-label="全屏预览">
+        </UiButton>
+        <UiSeparator orientation="vertical" class="h-6" />
+        <UiButton color="neutral" variant="ghost" square size="md" type="button" aria-label="全屏预览">
           <Maximize2 :size="18" />
-        </UButton>
+        </UiButton>
       </span>
     </footer>
   </section>

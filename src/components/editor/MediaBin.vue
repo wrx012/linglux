@@ -988,7 +988,7 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
 </script>
 
 <template>
-  <UCard
+  <UiCard
     as="aside"
     variant="subtle"
     class="min-h-0 overflow-hidden rounded-none border-0 border-r border-default bg-muted text-default ring-0"
@@ -1001,13 +1001,13 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
       :class="compact ? 'gap-1 px-1.5 py-2' : 'gap-2 px-2.5 py-4'"
       aria-label="剪辑工具栏"
     >
-      <UTooltip
+      <UiTooltip
         v-for="tab in toolTabs"
         :key="tab.id"
         :text="tab.label"
         :content="{ side: 'right', sideOffset: 8 }"
       >
-        <UButton
+        <UiButton
           :color="activeTool === tab.id ? 'secondary' : 'neutral'"
           :variant="activeTool === tab.id ? 'solid' : 'ghost'"
           square
@@ -1019,8 +1019,8 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
           @click="activeTool = tab.id"
         >
           <component :is="tab.icon" :size="navigationIconSize" />
-        </UButton>
-      </UTooltip>
+        </UiButton>
+      </UiTooltip>
     </nav>
 
     <section
@@ -1046,11 +1046,11 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
           </template>
           <template v-else-if="ttsStatus.state !== 'ready'">
             <p class="text-[10px] leading-4 text-[#a7b8b3]">首次使用需下载约 {{ (ttsStatus.requiredBytes / 1_000_000_000).toFixed(1) }} GB，安装后可离线生成。</p>
-            <UProgress v-if="ttsBusy" :model-value="ttsProgress || 0" size="xs" color="secondary" />
+            <UiProgress v-if="ttsBusy" :model-value="ttsProgress || 0" size="xs" color="secondary" />
             <p v-if="ttsTaskStatus || ttsError" class="text-[10px]" :class="ttsError ? 'text-[#fca5a5]' : 'text-[#8fd8c5]'">{{ ttsError || ttsTaskStatus }}</p>
             <div class="flex gap-2">
-              <UButton size="xs" color="secondary" type="button" :loading="ttsBusy" :disabled="ttsBusy" @click="emit('setupTts')">安装本地模型</UButton>
-              <UButton v-if="ttsBusy" size="xs" color="neutral" variant="soft" type="button" @click="emit('cancelTts')">取消</UButton>
+              <UiButton size="xs" color="secondary" type="button" :loading="ttsBusy" :disabled="ttsBusy" @click="emit('setupTts')">安装本地模型</UiButton>
+              <UiButton v-if="ttsBusy" size="xs" color="neutral" variant="soft" type="button" @click="emit('cancelTts')">取消</UiButton>
             </div>
           </template>
           <template v-else>
@@ -1074,11 +1074,11 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
             <label class="grid gap-1 text-[10px] font-bold text-[#a7b8b3]">语速 {{ speechSpeed.toFixed(2) }}×
               <input v-model.number="speechSpeed" type="range" min="0.75" max="1.5" step="0.05" class="w-full" />
             </label>
-            <UProgress v-if="ttsBusy" :model-value="ttsProgress || 0" size="xs" color="secondary" />
+            <UiProgress v-if="ttsBusy" :model-value="ttsProgress || 0" size="xs" color="secondary" />
             <p v-if="ttsError || localSpeechError || ttsTaskStatus" class="text-[10px]" :class="ttsError || localSpeechError ? 'text-[#fca5a5]' : 'text-[#8fd8c5]'">{{ ttsError || localSpeechError || ttsTaskStatus }}</p>
             <div class="flex gap-2">
-              <UButton class="flex-1" size="xs" color="secondary" type="button" :loading="ttsBusy" :disabled="!canGenerateSpeech" @click="submitSpeech">生成并添加</UButton>
-              <UButton v-if="ttsBusy" size="xs" color="neutral" variant="soft" type="button" @click="emit('cancelTts')">取消</UButton>
+              <UiButton class="flex-1" size="xs" color="secondary" type="button" :loading="ttsBusy" :disabled="!canGenerateSpeech" @click="submitSpeech">生成并添加</UiButton>
+              <UiButton v-if="ttsBusy" size="xs" color="neutral" variant="soft" type="button" @click="emit('cancelTts')">取消</UiButton>
             </div>
           </template>
         </article>
@@ -1160,13 +1160,13 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
         <div class="min-w-0">
           <div class="flex min-w-0 items-center gap-2">
             <h2 class="truncate font-black text-highlighted" :class="compact ? 'text-[13px]' : 'text-[18px]'">{{ activeTabLabel }}</h2>
-            <UBadge color="neutral" variant="subtle" size="sm" class="shrink-0 px-1.5">{{ compact ? assets.length : assetCountLabel }}</UBadge>
+            <UiBadge color="neutral" variant="subtle" size="sm" class="shrink-0 px-1.5">{{ compact ? assets.length : assetCountLabel }}</UiBadge>
           </div>
           <p class="mt-0.5 truncate font-semibold text-muted" :class="compact ? 'text-[9px]' : 'text-[11px]'">{{ assetPanelDescription }}</p>
         </div>
 
         <div class="flex items-center" :class="compact ? 'gap-1' : 'gap-2'">
-          <UButton
+          <UiButton
             :color="viewMode === 'grid' ? 'secondary' : 'neutral'"
             :variant="viewMode === 'grid' ? 'soft' : 'ghost'"
             square
@@ -1176,8 +1176,8 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
             @click="viewMode = 'grid'"
           >
             <Grid2x2 :size="viewIconSize" />
-          </UButton>
-          <UButton
+          </UiButton>
+          <UiButton
             :color="viewMode === 'list' ? 'secondary' : 'neutral'"
             :variant="viewMode === 'list' ? 'soft' : 'ghost'"
             square
@@ -1187,8 +1187,8 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
             @click="viewMode = 'list'"
           >
             <List :size="viewIconSize" />
-          </UButton>
-          <UButton
+          </UiButton>
+          <UiButton
             v-if="selectedDeletableAssetCount > 1"
             color="error"
             variant="subtle"
@@ -1199,23 +1199,23 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
           >
             <Trash2 :size="importIconSize" />
             删除 {{ selectedDeletableAssetCount }}
-          </UButton>
-          <UTooltip :text="isTauri() ? '分镜宫格图转视频' : '分镜转视频仅桌面版可用'">
-            <UButton color="neutral" variant="soft" :size="compact ? 'xs' : 'sm'" type="button" :disabled="!isTauri()" aria-label="分镜图转视频" @click="openStoryboardPicker">
+          </UiButton>
+          <UiTooltip :text="isTauri() ? '分镜宫格图转视频' : '分镜转视频仅桌面版可用'">
+            <UiButton color="neutral" variant="soft" :size="compact ? 'xs' : 'sm'" type="button" :disabled="!isTauri()" aria-label="分镜图转视频" @click="openStoryboardPicker">
               <Clapperboard :size="importIconSize" />
               <span v-if="!compact">分镜转视频</span>
-            </UButton>
-          </UTooltip>
-          <UButton color="secondary" variant="solid" :size="compact ? 'xs' : 'sm'" class="shadow-md shadow-secondary/15" type="button" @click="openFilePicker">
+            </UiButton>
+          </UiTooltip>
+          <UiButton color="secondary" variant="solid" :size="compact ? 'xs' : 'sm'" class="shadow-md shadow-secondary/15" type="button" @click="openFilePicker">
             <Upload :size="importIconSize" />
             导入
-          </UButton>
+          </UiButton>
           <input ref="fileInput" class="sr-only" type="file" multiple accept="video/*,image/*,audio/*,.srt,.vtt,.txt" @change="handleFileInput" />
         </div>
       </header>
 
       <div class="grid items-center border-b border-[#20242f]" :class="compact ? 'px-2.5' : 'px-5'">
-        <UInput
+        <UiInput
           v-model="searchQuery"
           type="search"
           color="neutral"
@@ -1229,7 +1229,7 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
           <template #leading>
             <Search :size="compact ? 14 : 16" class="text-muted" />
           </template>
-        </UInput>
+        </UiInput>
       </div>
 
       <div
@@ -1241,7 +1241,7 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
         @pointerdown="beginMarqueeSelection"
         @keydown="handleAssetPanelKeydown"
       >
-        <UCard
+        <UiCard
           v-if="isAssetLibraryEmpty"
           as="button"
           variant="outline"
@@ -1265,7 +1265,7 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
               <span class="mt-0.5 block font-semibold text-muted" :class="compact ? 'text-[8px]' : 'text-[11px]'">{{ compact ? "视频、图片、音频" : "支持视频、高清图像及主流音频文件" }}</span>
             </span>
           </span>
-        </UCard>
+        </UiCard>
 
         <p v-if="!compact" class="mb-3 text-[11px] font-bold text-[#687386]">{{ activeTabLabel }} · 双击素材加入时间线，或拖到下方轨道</p>
 
@@ -1442,5 +1442,5 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
         </div>
       </div>
     </section>
-  </UCard>
+  </UiCard>
 </template>

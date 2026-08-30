@@ -4599,27 +4599,27 @@ function cleanupImportedObjectUrls() {
 </script>
 
 <template>
-  <UDashboardGroup as="section" :persistent="false" class="h-dvh min-h-[720px] overflow-hidden bg-default text-default max-[900px]:h-auto max-[900px]:min-h-dvh" aria-label="Linglux 内置剪辑器">
-    <UDashboardPanel
+  <UiDashboardGroup as="section" :persistent="false" class="h-dvh min-h-[720px] overflow-hidden bg-default text-default max-[900px]:h-auto max-[900px]:min-h-dvh" aria-label="Linglux 内置剪辑器">
+    <UiDashboardPanel
       id="editor-workspace"
       class="relative grid h-full min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden"
       :ui="{ root: 'border-0 bg-default', body: 'p-0' }"
     >
-    <UDashboardNavbar
+    <UiDashboardNavbar
       as="header"
       :toggle="false"
       class="min-h-14 border-b border-default bg-default/95 px-3 shadow-sm backdrop-blur-xl"
       :ui="{ root: 'gap-3 py-2', left: 'min-w-[220px] gap-2', center: 'min-w-[220px] flex-1 justify-center max-[900px]:justify-start', right: 'ml-auto shrink-0 gap-1.5' }"
     >
       <template #left>
-        <UButton color="neutral" variant="soft" square size="sm" title="返回工作流" aria-label="返回工作流" @click="emit('returnToWorkflow')">
+        <UiButton color="neutral" variant="soft" square size="sm" title="返回工作流" aria-label="返回工作流" @click="emit('returnToWorkflow')">
           <ArrowLeft :size="15" />
-        </UButton>
+        </UiButton>
         <img :src="lingluxLogo" alt="" class="size-8 rounded-xl object-contain shadow-[0_8px_20px_rgb(37_99_235/0.18)]" />
         <div class="min-w-0">
           <div class="flex items-center gap-1.5">
             <h1 class="truncate text-[14px] font-black leading-4 text-highlighted">Linglux Studio</h1>
-            <UBadge color="secondary" variant="subtle" size="sm" class="px-1.5 py-0 text-[9px]">v0.1</UBadge>
+            <UiBadge color="secondary" variant="subtle" size="sm" class="px-1.5 py-0 text-[9px]">v0.1</UiBadge>
           </div>
           <p class="truncate text-[9px] font-semibold leading-3 text-muted">AI video editor workspace</p>
         </div>
@@ -4628,38 +4628,38 @@ function cleanupImportedObjectUrls() {
       <template #default>
         <div class="flex min-w-0 flex-wrap items-center justify-center gap-2 text-[11px] font-semibold text-toned max-[900px]:justify-start">
           <span class="text-muted max-[760px]:hidden">当前工程</span>
-          <UBadge color="neutral" variant="subtle" size="sm" class="max-w-[240px] truncate">
+          <UiBadge color="neutral" variant="subtle" size="sm" class="max-w-[240px] truncate">
             {{ project.name }}
-          </UBadge>
-          <UBadge color="success" variant="subtle" size="sm" class="gap-1 max-[760px]:hidden">
+          </UiBadge>
+          <UiBadge color="success" variant="subtle" size="sm" class="gap-1 max-[760px]:hidden">
             <span class="size-1.5 rounded-full bg-success" aria-hidden="true"></span>
             云端同步
-          </UBadge>
-          <UButton v-if="activeImportTaskIds.length > 0" color="neutral" variant="subtle" size="xs" class="max-w-[240px] truncate" type="button" :title="`${importTaskStatus} · 后台处理，可点击取消`" @click="cancelImport">
+          </UiBadge>
+          <UiButton v-if="activeImportTaskIds.length > 0" color="neutral" variant="subtle" size="xs" class="max-w-[240px] truncate" type="button" :title="`${importTaskStatus} · 后台处理，可点击取消`" @click="cancelImport">
             后台：{{ importTaskStatus }}
-          </UButton>
-          <UBadge v-else color="neutral" variant="outline" size="sm" :title="saveState">{{ saveState }}</UBadge>
+          </UiButton>
+          <UiBadge v-else color="neutral" variant="outline" size="sm" :title="saveState">{{ saveState }}</UiBadge>
         </div>
       </template>
 
       <template #right>
-        <UTooltip text="撤销" :kbds="['meta', 'Z']">
-          <UButton color="neutral" variant="ghost" square size="sm" type="button" aria-label="撤销（⌘ Z / Ctrl Z）" :disabled="!canUndo" @click="undo">
+        <UiTooltip text="撤销" :kbds="['meta', 'Z']">
+          <UiButton color="neutral" variant="ghost" square size="sm" type="button" aria-label="撤销（⌘ Z / Ctrl Z）" :disabled="!canUndo" @click="undo">
             <Undo2 :size="15" />
-          </UButton>
-        </UTooltip>
-        <UTooltip text="重做">
-          <UButton color="neutral" variant="ghost" square size="sm" type="button" aria-label="重做" :disabled="!canRedo" @click="redo">
+          </UiButton>
+        </UiTooltip>
+        <UiTooltip text="重做">
+          <UiButton color="neutral" variant="ghost" square size="sm" type="button" aria-label="重做" :disabled="!canRedo" @click="redo">
             <Redo2 :size="15" />
-          </UButton>
-        </UTooltip>
-        <UTooltip text="保存工程">
-          <UButton color="neutral" variant="soft" square size="sm" type="button" aria-label="保存剪辑工程" @click="saveProject">
+          </UiButton>
+        </UiTooltip>
+        <UiTooltip text="保存工程">
+          <UiButton color="neutral" variant="soft" square size="sm" type="button" aria-label="保存剪辑工程" @click="saveProject">
             <Save :size="15" />
-          </UButton>
-        </UTooltip>
-        <UTooltip text="AI 剪辑助手">
-          <UButton
+          </UiButton>
+        </UiTooltip>
+        <UiTooltip text="AI 剪辑助手">
+          <UiButton
             color="primary"
             :variant="isAgentPanelOpen ? 'soft' : 'ghost'"
             square
@@ -4670,16 +4670,16 @@ function cleanupImportedObjectUrls() {
             @click="isAgentPanelOpen ? closeAgentPanel() : openAgentPanel()"
           >
             <Sparkles :size="14" />
-          </UButton>
-        </UTooltip>
-        <UPopover
+          </UiButton>
+        </UiTooltip>
+        <UiPopover
           :open="isShortcutMenuOpen"
           :content="{ side: 'bottom', align: 'end', sideOffset: 8, collisionPadding: 12 }"
           :ui="{ content: 'z-50 w-[360px] overflow-hidden rounded-lg border border-default bg-elevated/98 p-2 shadow-2xl backdrop-blur-xl' }"
           @update:open="updateShortcutMenuOpen"
         >
-          <UTooltip text="快捷键">
-            <UButton
+          <UiTooltip text="快捷键">
+            <UiButton
               color="neutral"
               variant="soft"
               square
@@ -4690,8 +4690,8 @@ function cleanupImportedObjectUrls() {
               :aria-expanded="isShortcutMenuOpen"
             >
               <Keyboard :size="14" />
-            </UButton>
-          </UTooltip>
+            </UiButton>
+          </UiTooltip>
           <template #content>
           <div
             data-linglux-shortcut-menu
@@ -4703,7 +4703,7 @@ function cleanupImportedObjectUrls() {
                 <strong class="block text-[11px] font-black text-[#e5e7eb]">快捷键设置</strong>
                 <span class="block truncate text-[9px] font-semibold text-[#778398]">选择一项，按住新按键并松开</span>
               </span>
-              <UButton
+              <UiButton
                 color="neutral"
                 variant="outline"
                 size="xs"
@@ -4715,7 +4715,7 @@ function cleanupImportedObjectUrls() {
               >
                 <RotateCcw :size="12" />
                 初始化
-              </UButton>
+              </UiButton>
             </div>
             <p class="px-2 pb-1.5 pt-1 text-[9px] font-black uppercase tracking-[0.16em] text-[#687386]">预览</p>
             <button
@@ -4834,24 +4834,24 @@ function cleanupImportedObjectUrls() {
             </p>
           </div>
           </template>
-        </UPopover>
-        <UTooltip text="属性">
-          <UButton color="secondary" variant="soft" square size="sm" type="button" aria-label="打开片段属性" @click="isInspectorOpen = true">
+        </UiPopover>
+        <UiTooltip text="属性">
+          <UiButton color="secondary" variant="soft" square size="sm" type="button" aria-label="打开片段属性" @click="isInspectorOpen = true">
             <SlidersHorizontal :size="14" />
-          </UButton>
-        </UTooltip>
-        <UTooltip text="设置">
-          <UButton color="neutral" variant="soft" square size="sm" type="button" aria-label="打开设置" @click="emit('openSettings')">
+          </UiButton>
+        </UiTooltip>
+        <UiTooltip text="设置">
+          <UiButton color="neutral" variant="soft" square size="sm" type="button" aria-label="打开设置" @click="emit('openSettings')">
             <Settings :size="14" />
-          </UButton>
-        </UTooltip>
-        <UTooltip text="导出工程">
-          <UButton color="primary" variant="solid" square size="sm" class="shadow-lg shadow-primary/15" type="button" aria-label="打开导出设置" @click="openExportDialog">
+          </UiButton>
+        </UiTooltip>
+        <UiTooltip text="导出工程">
+          <UiButton color="primary" variant="solid" square size="sm" class="shadow-lg shadow-primary/15" type="button" aria-label="打开导出设置" @click="openExportDialog">
             <Download :size="14" />
-          </UButton>
-        </UTooltip>
+          </UiButton>
+        </UiTooltip>
       </template>
-    </UDashboardNavbar>
+    </UiDashboardNavbar>
 
     <div class="grid min-h-0 grid-rows-[minmax(280px,1fr)_minmax(340px,44vh)] overflow-hidden max-[900px]:min-h-[980px] max-[900px]:grid-rows-[minmax(680px,auto)_360px]">
       <div class="grid min-h-0 overflow-hidden" :class="previewWorkspaceLayoutClass">
@@ -5003,7 +5003,7 @@ function cleanupImportedObjectUrls() {
       </span>
     </div>
 
-    <USlideover
+    <UiSlideover
       :open="isInspectorDrawerVisible"
       :close="false"
       title="片段属性"
@@ -5025,9 +5025,9 @@ function cleanupImportedObjectUrls() {
           <InspectorPanel :selected-clip="selectedClip" @update-clip="updateClip" />
         </aside>
       </template>
-    </USlideover>
+    </UiSlideover>
 
-    <USlideover
+    <UiSlideover
       :open="isAgentPanelOpen && isAgentDrawerViewport"
       :close="false"
       title="AI 剪辑助手"
@@ -5053,7 +5053,7 @@ function cleanupImportedObjectUrls() {
           @open-settings="emit('openSettings')"
         />
       </template>
-    </USlideover>
+    </UiSlideover>
 
     <ExportDialog
       :open="isExportDialogOpen"
@@ -5086,6 +5086,6 @@ function cleanupImportedObjectUrls() {
       @generate="generateStoryboardVideo"
       @cancel="cancelStoryboardGeneration"
     />
-    </UDashboardPanel>
-  </UDashboardGroup>
+    </UiDashboardPanel>
+  </UiDashboardGroup>
 </template>

@@ -1851,13 +1851,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <UApp :toaster="null">
+  <UiApp :toaster="null">
   <main
     class="grid h-dvh overflow-hidden bg-[#070708] text-[#d1d5db] max-[760px]:h-auto max-[760px]:min-h-dvh"
     :class="activeWorkspace === 'editor' ? 'grid-cols-1' : 'grid-cols-[236px_minmax(0,1fr)] max-[760px]:grid-cols-1'"
     @pointerdown="closeFloatingPanels"
   >
-    <UCard
+    <UiCard
       v-if="activeWorkspace !== 'editor'"
       as="aside"
       variant="subtle"
@@ -1870,17 +1870,17 @@ onUnmounted(() => {
           <h1 class="truncate text-[14px] font-bold leading-[18px] text-highlighted">灵帧AI</h1>
           <p class="truncate text-[9px] font-semibold leading-3 text-muted">LINGLUX AI</p>
         </div>
-        <UBadge color="primary" variant="subtle" size="sm">Beta</UBadge>
+        <UiBadge color="primary" variant="subtle" size="sm">Beta</UiBadge>
       </header>
 
-      <UButton color="primary" variant="soft" size="lg" class="mx-3 mb-6 mt-[18px] justify-start max-[760px]:mb-4" type="button">
+      <UiButton color="primary" variant="soft" size="lg" class="mx-3 mb-6 mt-[18px] justify-start max-[760px]:mb-4" type="button">
         <Plus :size="15" />
         新建工作流
-      </UButton>
+      </UiButton>
 
       <nav class="mx-3 mb-[22px] grid gap-1.5" aria-label="Workspace">
         <p class="mb-2.5 ml-3 text-[10px] font-extrabold leading-3 text-[#4b5563]">工作区</p>
-        <UButton
+        <UiButton
           v-for="item in workspaceNav"
           :key="item.label"
           :color="isWorkspaceItemActive(item) ? 'primary' : 'neutral'"
@@ -1894,15 +1894,15 @@ onUnmounted(() => {
             <component :is="item.icon" :size="14" />
           </span>
           <span class="min-w-0 flex-1 truncate text-left">{{ item.label }}</span>
-          <UBadge v-if="item.count" color="neutral" variant="subtle" size="sm" class="ml-auto">
+          <UiBadge v-if="item.count" color="neutral" variant="subtle" size="sm" class="ml-auto">
             {{ item.count }}
-          </UBadge>
-        </UButton>
+          </UiBadge>
+        </UiButton>
       </nav>
 
       <nav class="mx-3 mb-[22px] grid gap-1.5" aria-label="Settings and support">
         <p class="mb-2.5 ml-3 text-[10px] font-extrabold leading-3 text-[#4b5563]">设置与支持</p>
-        <UButton
+        <UiButton
           v-for="item in supportNav"
           :key="item.label"
           :color="isApiKeyPanelOpen && item.action === 'api-key' ? 'primary' : 'neutral'"
@@ -1916,8 +1916,8 @@ onUnmounted(() => {
             <component :is="item.icon" :size="14" />
           </span>
           <span class="min-w-0 flex-1 truncate text-left">{{ item.label }}</span>
-          <UChip v-if="item.meta" :color="item.meta === 'saved' ? 'success' : 'neutral'" standalone inset size="sm" class="ml-auto" />
-        </UButton>
+          <UiChip v-if="item.meta" :color="item.meta === 'saved' ? 'success' : 'neutral'" standalone inset size="sm" class="ml-auto" />
+        </UiButton>
       </nav>
 
       <footer class="mt-auto grid gap-3.5 border-t border-[#222228] bg-[#070708] px-[18px] pb-3.5 pt-5 max-[760px]:mt-1.5">
@@ -1930,7 +1930,7 @@ onUnmounted(() => {
           <span>v0.1.0</span>
         </div>
       </footer>
-    </UCard>
+    </UiCard>
 
     <section
       v-if="activeWorkspace === 'workflow'"
@@ -1940,20 +1940,20 @@ onUnmounted(() => {
       aria-label="AI workflow canvas"
       @pointerdown="startCanvasPan"
     >
-      <UCard
+      <UiCard
         data-canvas-pan-block
         variant="subtle"
         class="sticky left-1/2 top-5 z-10 inline-block min-h-11 -translate-x-1/2 rounded-lg border-default bg-elevated/90 shadow-xl backdrop-blur max-[760px]:left-4 max-[760px]:translate-x-0"
         :ui="{ body: 'flex flex-wrap items-center gap-1.5 px-2 py-1.5' }"
         aria-label="Floating tools"
       >
-        <UBadge color="neutral" variant="subtle" size="sm">工具箱</UBadge>
-        <USeparator orientation="vertical" class="mx-1 h-5" />
-        <UButton v-for="tool in tools" :key="tool" color="neutral" variant="ghost" square size="xs" type="button" :title="tool" class="text-[10px] font-extrabold">
+        <UiBadge color="neutral" variant="subtle" size="sm">工具箱</UiBadge>
+        <UiSeparator orientation="vertical" class="mx-1 h-5" />
+        <UiButton v-for="tool in tools" :key="tool" color="neutral" variant="ghost" square size="xs" type="button" :title="tool" class="text-[10px] font-extrabold">
           {{ tool }}
-        </UButton>
-        <USeparator orientation="vertical" class="mx-1 h-5" />
-        <UButton
+        </UiButton>
+        <UiSeparator orientation="vertical" class="mx-1 h-5" />
+        <UiButton
           color="primary"
           variant="soft"
           square
@@ -1964,18 +1964,18 @@ onUnmounted(() => {
           @click="openCameraPanel"
         >
           <Camera :size="14" />
-        </UButton>
-        <UButton color="primary" variant="ghost" square size="xs" class="text-[10px] font-extrabold" type="button" title="Export">
+        </UiButton>
+        <UiButton color="primary" variant="ghost" square size="xs" class="text-[10px] font-extrabold" type="button" title="Export">
           DL
-        </UButton>
-        <USeparator orientation="vertical" class="mx-1 h-5" />
-        <UPopover
+        </UiButton>
+        <UiSeparator orientation="vertical" class="mx-1 h-5" />
+        <UiPopover
           :open="isNodePaletteOpen"
           :content="{ side: 'bottom', align: 'end', sideOffset: 12, collisionPadding: 12 }"
           :ui="{ content: 'z-30 w-[300px] overflow-hidden rounded-xl border border-[#303034] bg-[#1d1d1f] px-[22px] py-2.5 shadow-[0_22px_60px_rgb(0_0_0/0.58)]' }"
           @update:open="updateNodePaletteOpen"
         >
-          <UButton
+          <UiButton
             color="primary"
             variant="soft"
             size="xs"
@@ -1987,7 +1987,7 @@ onUnmounted(() => {
           >
             <Plus :size="13" />
             添加节点
-          </UButton>
+          </UiButton>
 
           <template #content>
             <div
@@ -2014,8 +2014,8 @@ onUnmounted(() => {
               </section>
             </div>
           </template>
-        </UPopover>
-      </UCard>
+        </UiPopover>
+      </UiCard>
 
       <div class="relative mx-auto mt-4" :style="canvasFrameStyle">
         <div class="absolute left-0 top-0 will-change-transform" :style="canvasPanStyle">
@@ -2081,7 +2081,7 @@ onUnmounted(() => {
             </div>
 
             <label class="mx-4 mb-[7px] block text-[10px] font-extrabold leading-[14px] text-[#6b7280]" :for="`image-prompt-${node.id}`">Prompt 画面提示词</label>
-            <UTextarea
+            <UiTextarea
               :id="`image-prompt-${node.id}`"
               v-model="prompt"
               color="neutral"
@@ -2095,11 +2095,11 @@ onUnmounted(() => {
             <div class="mx-4 grid grid-cols-2 gap-3">
               <label class="grid min-w-0 gap-1.5">
                 <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">图片比例</span>
-                <UInput color="neutral" variant="subtle" size="sm" model-value="3:4 / 中 / 1k" readonly :ui="{ base: 'text-[11px]' }" />
+                <UiInput color="neutral" variant="subtle" size="sm" model-value="3:4 / 中 / 1k" readonly :ui="{ base: 'text-[11px]' }" />
               </label>
               <label class="grid min-w-0 gap-1.5">
                 <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">模型选择</span>
-                <USelect
+                <UiSelect
                   v-model="node.modelId"
                   :items="getModelOptionsForNode(node)"
                   label-key="label"
@@ -2119,10 +2119,10 @@ onUnmounted(() => {
               <strong class="rounded-full bg-[#22302a] px-2 py-0.5 text-[10px] text-[#86efac]">{{ getNodeTokenEstimateLabel(node) }}</strong>
             </div>
 
-            <UButton color="primary" variant="solid" size="md" block class="mx-4 mt-7 w-[calc(100%_-_32px)]" type="button" :disabled="isNodeRunning(node)" @click="generateImage(node)">
+            <UiButton color="primary" variant="solid" size="md" block class="mx-4 mt-7 w-[calc(100%_-_32px)]" type="button" :disabled="isNodeRunning(node)" @click="generateImage(node)">
               <WandSparkles :size="15" />
               {{ isNodeRunning(node) ? "生成中..." : hasSavedApiKey ? "生成 AI 图像" : "设置 API Key" }}
-            </UButton>
+            </UiButton>
             <span class="socket left-[-7px] top-[119px]"></span>
             <span class="socket right-[-7px] top-[139px]"></span>
           </template>
@@ -2136,7 +2136,7 @@ onUnmounted(() => {
 
             <label class="mx-4 mb-4 grid gap-1.5">
               <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">视频模型</span>
-              <USelect
+              <UiSelect
                 v-model="node.modelId"
                 :items="getModelOptionsForNode(node)"
                 label-key="label"
@@ -2151,16 +2151,16 @@ onUnmounted(() => {
             </label>
 
             <p class="mx-4 mb-2 block text-[10px] font-extrabold leading-[14px] text-[#6b7280]">运动幅度强度</p>
-            <UTabs v-model="selectedMotion" :items="motionOptions" color="primary" variant="pill" size="xs" class="mx-4 mb-5 w-[calc(100%_-_32px)]" :ui="{ list: 'w-full bg-elevated', trigger: 'flex-1 text-[10px] font-extrabold' }" aria-label="Motion intensity" />
+            <UiTabs v-model="selectedMotion" :items="motionOptions" color="primary" variant="pill" size="xs" class="mx-4 mb-5 w-[calc(100%_-_32px)]" :ui="{ list: 'w-full bg-elevated', trigger: 'flex-1 text-[10px] font-extrabold' }" aria-label="Motion intensity" />
 
             <div class="mx-4 grid grid-cols-2 gap-3">
               <label class="grid min-w-0 gap-1.5">
                 <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">时长选择</span>
-                <UInput color="neutral" variant="subtle" size="sm" model-value="5 秒" readonly :ui="{ base: 'text-[11px]' }" />
+                <UiInput color="neutral" variant="subtle" size="sm" model-value="5 秒" readonly :ui="{ base: 'text-[11px]' }" />
               </label>
               <label class="grid min-w-0 gap-1.5">
                 <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">分辨率</span>
-                <UInput color="neutral" variant="subtle" size="sm" model-value="1080p FHD" readonly :ui="{ base: 'text-[11px]' }" />
+                <UiInput color="neutral" variant="subtle" size="sm" model-value="1080p FHD" readonly :ui="{ base: 'text-[11px]' }" />
               </label>
             </div>
 
@@ -2169,14 +2169,14 @@ onUnmounted(() => {
               <strong class="rounded-full bg-[#1a2b2b] px-2 py-0.5 text-[10px] text-[#5eead4]">{{ getNodeTokenEstimateLabel(node) }}</strong>
             </div>
 
-            <UButton color="primary" variant="solid" size="md" block class="mx-4 mt-7 w-[calc(100%_-_32px)]" type="button" :disabled="isNodeRunning(node)" @click="generateVideo(node)">
+            <UiButton color="primary" variant="solid" size="md" block class="mx-4 mt-7 w-[calc(100%_-_32px)]" type="button" :disabled="isNodeRunning(node)" @click="generateVideo(node)">
               <Sparkles :size="15" />
               {{ isNodeRunning(node) ? "排队中..." : hasSavedApiKey ? "生成 AI 视频" : "设置 API Key" }}
-            </UButton>
-            <UButton color="secondary" variant="soft" size="md" block class="mx-4 mt-2 w-[calc(100%_-_32px)]" type="button" @click="openEditorFromNode(node)">
+            </UiButton>
+            <UiButton color="secondary" variant="soft" size="md" block class="mx-4 mt-2 w-[calc(100%_-_32px)]" type="button" @click="openEditorFromNode(node)">
               <Scissors :size="15" />
               编辑视频
-            </UButton>
+            </UiButton>
             <span class="socket left-[-7px] top-[119px]"></span>
             <span class="socket right-[-7px] top-[139px]"></span>
           </template>
@@ -2359,7 +2359,7 @@ onUnmounted(() => {
       </aside>
     </Transition>
 
-    <UModal
+    <UiModal
       :open="isCameraPanelOpen"
       :close="false"
       title="摄影机控制"
@@ -2373,7 +2373,7 @@ onUnmounted(() => {
           <h2 id="camera-control-title" aria-hidden="true" class="text-[16px] font-bold leading-5 text-highlighted">摄影机控制</h2>
           <label class="grid min-w-[76px] gap-1" for="camera-preset">
             <span class="sr-only">摄影机预设</span>
-            <USelect
+            <UiSelect
               id="camera-preset"
               :model-value="selectedCameraPreset"
               :items="cameraPresets"
@@ -2387,7 +2387,7 @@ onUnmounted(() => {
         </header>
 
         <div class="grid gap-4 overflow-y-auto px-4 pb-4 max-[760px]:px-3">
-          <UTabs
+          <UiTabs
             :model-value="selectedCameraCategory"
             :items="cameraTypeTabs"
             :content="false"
@@ -2399,27 +2399,27 @@ onUnmounted(() => {
             <template #leading="{ item }">
               <component :is="item.icon" :size="15" />
             </template>
-          </UTabs>
+          </UiTabs>
 
           <div class="grid grid-cols-4 gap-2.5 max-[920px]:grid-cols-2 max-[560px]:grid-cols-1">
             <label class="grid gap-2 rounded-xl border border-[#303037] bg-[#202024] p-2.5" for="camera-body">
               <span class="text-[11px] font-bold text-[#85858e]">机身</span>
-              <USelect id="camera-body" v-model="selectedCameraBodyId" :items="activeCameraBodies" value-key="id" label-key="label" class="min-w-0" :ui="{ base: 'h-10 rounded-lg bg-[#18181b] text-[13px] font-bold text-highlighted ring-[#35353d]', content: 'z-[80] bg-[#18181b] ring-[#35353d]' }" />
+              <UiSelect id="camera-body" v-model="selectedCameraBodyId" :items="activeCameraBodies" value-key="id" label-key="label" class="min-w-0" :ui="{ base: 'h-10 rounded-lg bg-[#18181b] text-[13px] font-bold text-highlighted ring-[#35353d]', content: 'z-[80] bg-[#18181b] ring-[#35353d]' }" />
             </label>
 
             <label class="grid gap-2 rounded-xl border border-[#303037] bg-[#202024] p-2.5" for="camera-lens">
               <span class="text-[11px] font-bold text-[#85858e]">镜头</span>
-              <USelect id="camera-lens" v-model="selectedLens" :items="lensOptions" value-key="value" label-key="label" class="min-w-0" :ui="{ base: 'h-10 rounded-lg bg-[#18181b] text-[13px] font-bold text-highlighted ring-[#35353d]', content: 'z-[80] bg-[#18181b] ring-[#35353d]' }" />
+              <UiSelect id="camera-lens" v-model="selectedLens" :items="lensOptions" value-key="value" label-key="label" class="min-w-0" :ui="{ base: 'h-10 rounded-lg bg-[#18181b] text-[13px] font-bold text-highlighted ring-[#35353d]', content: 'z-[80] bg-[#18181b] ring-[#35353d]' }" />
             </label>
 
             <label class="grid gap-2 rounded-xl border border-[#303037] bg-[#202024] p-2.5" for="camera-focal-length">
               <span class="text-[11px] font-bold text-[#85858e]">焦段</span>
-              <USelect id="camera-focal-length" v-model="selectedFocalLength" :items="focalLengthOptions" class="min-w-0" :ui="{ base: 'h-10 rounded-lg bg-[#18181b] text-[13px] font-bold text-highlighted ring-[#35353d]', content: 'z-[80] bg-[#18181b] ring-[#35353d]' }" />
+              <UiSelect id="camera-focal-length" v-model="selectedFocalLength" :items="focalLengthOptions" class="min-w-0" :ui="{ base: 'h-10 rounded-lg bg-[#18181b] text-[13px] font-bold text-highlighted ring-[#35353d]', content: 'z-[80] bg-[#18181b] ring-[#35353d]' }" />
             </label>
 
             <label class="grid gap-2 rounded-xl border border-[#303037] bg-[#202024] p-2.5" for="camera-aperture">
               <span class="text-[11px] font-bold text-[#85858e]">光圈</span>
-              <USelect id="camera-aperture" v-model="selectedAperture" :items="apertureOptions" class="min-w-0" :ui="{ base: 'h-10 rounded-lg bg-[#18181b] text-[13px] font-bold text-highlighted ring-[#35353d]', content: 'z-[80] bg-[#18181b] ring-[#35353d]' }" />
+              <UiSelect id="camera-aperture" v-model="selectedAperture" :items="apertureOptions" class="min-w-0" :ui="{ base: 'h-10 rounded-lg bg-[#18181b] text-[13px] font-bold text-highlighted ring-[#35353d]', content: 'z-[80] bg-[#18181b] ring-[#35353d]' }" />
             </label>
           </div>
 
@@ -2474,18 +2474,18 @@ onUnmounted(() => {
         </div>
 
         <footer class="flex justify-end gap-2 border-t border-[#2f2f36] px-4 py-4 max-[560px]:grid max-[560px]:grid-cols-2">
-          <UButton class="h-9 min-w-[84px] justify-center bg-[#1f1f23] px-4 text-[12px] text-white ring-[#4b4b55] hover:bg-[#25252a] hover:ring-[#6b7280]" type="button" color="neutral" variant="outline" @click="closeCameraPanel">
+          <UiButton class="h-9 min-w-[84px] justify-center bg-[#1f1f23] px-4 text-[12px] text-white ring-[#4b4b55] hover:bg-[#25252a] hover:ring-[#6b7280]" type="button" color="neutral" variant="outline" @click="closeCameraPanel">
             关闭
-          </UButton>
-          <UButton class="h-9 min-w-[84px] justify-center bg-[#4a4a51] px-4 text-[12px] text-white hover:bg-[#5a5a62]" type="button" color="neutral" @click="applyCameraControl">
+          </UiButton>
+          <UiButton class="h-9 min-w-[84px] justify-center bg-[#4a4a51] px-4 text-[12px] text-white hover:bg-[#5a5a62]" type="button" color="neutral" @click="applyCameraControl">
             应用
-          </UButton>
+          </UiButton>
         </footer>
       </section>
       </template>
-    </UModal>
+    </UiModal>
 
-    <UModal
+    <UiModal
       :open="isSettingsPanelOpen"
       :close="false"
       title="设置"
@@ -2500,9 +2500,9 @@ onUnmounted(() => {
               <p class="mb-1 text-[10px] font-extrabold leading-3 text-dimmed">PREFERENCES</p>
               <h2 aria-hidden="true" class="truncate text-[16px] font-bold leading-5 text-highlighted">设置</h2>
             </div>
-            <UButton color="neutral" variant="soft" square size="sm" type="button" aria-label="关闭设置" @click="closeSettingsPanel">
+            <UiButton color="neutral" variant="soft" square size="sm" type="button" aria-label="关闭设置" @click="closeSettingsPanel">
               <X :size="16" />
-            </UButton>
+            </UiButton>
           </header>
 
           <div class="grid gap-6 overflow-y-auto px-5 py-5">
@@ -2547,7 +2547,7 @@ onUnmounted(() => {
               </div>
             </section>
 
-            <USeparator />
+            <UiSeparator />
 
             <section class="flex items-center gap-3 rounded-xl border border-default bg-muted p-4">
               <span class="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
@@ -2557,16 +2557,16 @@ onUnmounted(() => {
                 <strong class="block text-[12px] font-black text-highlighted">模型服务</strong>
                 <span class="mt-1 block truncate text-[9px] font-semibold text-muted">{{ hasSavedApiKey ? `${activeProviderLabel} · ${savedApiKeyHint}` : '配置 API Key 与服务地址' }}</span>
               </span>
-              <UButton color="neutral" variant="outline" size="sm" type="button" @click="openApiKeyFromSettings">
+              <UiButton color="neutral" variant="outline" size="sm" type="button" @click="openApiKeyFromSettings">
                 管理
-              </UButton>
+              </UiButton>
             </section>
           </div>
         </section>
       </template>
-    </UModal>
+    </UiModal>
 
-    <UModal
+    <UiModal
       :open="isApiKeyPanelOpen"
       :close="false"
       :dismissible="!isSavingApiKey && !isClearingApiKey"
@@ -2590,7 +2590,7 @@ onUnmounted(() => {
         <section class="grid gap-5 overflow-y-auto px-5 py-5">
           <div class="grid gap-2">
             <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">服务商</span>
-            <UTabs
+            <UiTabs
               :model-value="apiKeyDraft.provider"
               :items="apiProviderOptions"
               :content="false"
@@ -2603,7 +2603,7 @@ onUnmounted(() => {
 
           <label class="grid gap-2" for="api-base-url">
             <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">Base URL</span>
-            <UInput
+            <UiInput
               id="api-base-url"
               v-model="apiKeyDraft.baseUrl"
               class="w-full"
@@ -2615,7 +2615,7 @@ onUnmounted(() => {
 
           <label class="grid gap-2" for="api-model-id">
             <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">聊天模型 ID</span>
-            <UInput
+            <UiInput
               id="api-model-id"
               v-model="apiKeyDraft.model"
               class="w-full"
@@ -2627,7 +2627,7 @@ onUnmounted(() => {
 
           <label class="grid gap-2" for="api-key-input">
             <span class="text-[10px] font-extrabold leading-[14px] text-[#6b7280]">API Key</span>
-            <UInput
+            <UiInput
               id="api-key-input"
               v-model="apiKeyDraft.apiKey"
               class="w-full"
@@ -2638,7 +2638,7 @@ onUnmounted(() => {
               spellcheck="false"
             >
               <template #trailing>
-                <UButton
+                <UiButton
                 class="grid size-7 place-items-center rounded-md p-0 text-[#6b7280] hover:bg-[#1d1d22] hover:text-[#d1d5db]"
                 type="button"
                 color="neutral"
@@ -2648,9 +2648,9 @@ onUnmounted(() => {
               >
                 <EyeOff v-if="showApiKey" :size="15" />
                 <Eye v-else :size="15" />
-                </UButton>
+                </UiButton>
               </template>
-            </UInput>
+            </UiInput>
           </label>
 
           <div class="flex min-h-9 items-center gap-2 rounded border border-[#222228] bg-[#0d0d10] px-3 text-[11px] text-[#9ca3af]">
@@ -2663,7 +2663,7 @@ onUnmounted(() => {
         </section>
 
         <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-[#222228] px-5 py-4">
-          <UButton
+          <UiButton
             class="h-9 min-w-[92px] justify-center bg-[#15151a] px-3 text-[12px] text-[#9ca3af] ring-[#2f2f36] hover:text-white"
             type="button"
             color="neutral"
@@ -2673,15 +2673,15 @@ onUnmounted(() => {
           >
             <Trash2 :size="14" />
             {{ isClearingApiKey ? "清除中..." : "清除" }}
-          </UButton>
-          <UButton class="h-9 min-w-[116px] justify-center bg-[#10b981] px-4 text-[12px] font-black text-[#070708] hover:bg-[#18c991]" type="submit" :disabled="isSavingApiKey">
+          </UiButton>
+          <UiButton class="h-9 min-w-[116px] justify-center bg-[#10b981] px-4 text-[12px] font-black text-[#070708] hover:bg-[#18c991]" type="submit" :disabled="isSavingApiKey">
             <Save :size="14" />
             {{ isSavingApiKey ? "保存中..." : "保存配置" }}
-          </UButton>
+          </UiButton>
         </footer>
       </form>
       </template>
-    </UModal>
+    </UiModal>
   </main>
-  </UApp>
+  </UiApp>
 </template>
