@@ -60,6 +60,8 @@ const emit = defineEmits<{
   selectAssets: [assetIds: string[]];
   importFiles: [files: File[]];
   importPaths: [paths: string[]];
+  importImageSequenceFiles: [files: File[]];
+  importImageSequencePaths: [paths: string[]];
   convertStoryboard: [path: string];
   addAssetToTimeline: [assetId: string];
   addAudioPresetToTimeline: [preset: AudioTrackPreset];
@@ -77,6 +79,7 @@ const searchQuery = ref("");
 const activeTool = ref<MediaToolId>("assets");
 const viewMode = ref<MediaViewMode>("grid");
 const fileInput = ref<HTMLInputElement | null>(null);
+const imageSequenceInput = ref<HTMLInputElement | null>(null);
 const assetScroller = ref<HTMLElement | null>(null);
 const isImportDragActive = ref(false);
 const previewingAudioPresetId = ref<string | null>(null);
@@ -300,8 +303,14 @@ function assetPreviewUrl(asset: MediaAsset) {
   return "";
 }
 
-function isVideoAddedToTimeline(asset: MediaAsset) {
-  return asset.type === "video" && timelineAssetIdSet.value.has(asset.id);
+function isVisualAddedToTimeline(asset: MediaAsset) {
+  return (asset.type === "video" || asset.type === "image") && timelineAssetIdSet.value.has(asset.id);
+}
+
+function addAssetTypeLabel(asset: MediaAsset) {
+  if (asset.type === "audio") return "音频";
+  if (asset.type === "image") return "图片";
+  return "视频";
 }
 
 function currentSelectedAssetIds() {
@@ -341,7 +350,7 @@ function listAssetSelectionClass(assetId: string) {
 }
 
 function isAssetDeletable(asset: MediaAsset) {
-  return asset.type === "video" || asset.type === "audio";
+  return asset.type === "video" || asset.type === "audio" || asset.type === "image";
 }
 
 function deleteAssetLabel(asset: MediaAsset) {
@@ -351,6 +360,10 @@ function deleteAssetLabel(asset: MediaAsset) {
 
   if (asset.type === "video") {
     return `删除视频 ${asset.name}`;
+  }
+
+  if (asset.type === "image") {
+    return `删除图片 ${asset.name}`;
   }
 
   return `删除素材 ${asset.name}`;
@@ -455,6 +468,28 @@ async function openStoryboardPicker() {
   if (typeof selected === "string") {
     emit("convertStoryboard", selected);
   }
+}
+
+async function openImageSequencePicker() {
+  if (isTauri()) {
+    const selected = await open({
+      title: "导入动态漫图片序列",
+      multiple: true,
+      directory: false,
+      filters: [{ name: "图片", extensions: ["jpg", "jpeg", "png", "webp", "gif"] }],
+    });
+    const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
+    if (paths.length) emit("importImageSequencePaths", paths);
+    return;
+  }
+  imageSequenceInput.value?.click();
+}
+
+function handleImageSequenceInput(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []).filter((file) => file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif)$/i.test(file.name));
+  if (files.length) emit("importImageSequenceFiles", files);
+  input.value = "";
 }
 
 function handleFileInput(event: Event) {
@@ -1206,11 +1241,16 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
               <span v-if="!compact">分镜转视频</span>
             </UiButton>
           </UiTooltip>
+          <UiButton color="secondary" variant="soft" :size="compact ? 'xs' : 'sm'" type="button" aria-label="导入图片序列" @click="openImageSequencePicker">
+            <Grid2x2 :size="importIconSize" />
+            <span v-if="!compact">图片序列</span>
+          </UiButton>
           <UiButton color="secondary" variant="solid" :size="compact ? 'xs' : 'sm'" class="shadow-md shadow-secondary/15" type="button" @click="openFilePicker">
             <Upload :size="importIconSize" />
             导入
           </UiButton>
           <input ref="fileInput" class="sr-only" type="file" multiple accept="video/*,image/*,audio/*,.srt,.vtt,.txt" @change="handleFileInput" />
+          <input ref="imageSequenceInput" class="sr-only" type="file" multiple accept="image/*,.jpg,.jpeg,.png,.webp,.gif" @change="handleImageSequenceInput" />
         </div>
       </header>
 
@@ -1308,7 +1348,7 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
                     <component :is="assetIcons[asset.type]" :size="11" />
                   </span>
                   <span
-                    v-if="isVideoAddedToTimeline(asset)"
+                    v-if="isVisualAddedToTimeline(asset)"
                     class="pointer-events-none absolute right-1.5 top-1.5 rounded-md border border-[#5eead4]/35 bg-[#0f2f2d]/90 px-1.5 py-0.5 text-[8px] font-black tracking-wide text-[#6ee7d8] shadow-[0_4px_12px_rgb(0_0_0/0.28)]"
                   >
                     已添加
@@ -1335,7 +1375,7 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
                 <button
                   class="grid size-6 place-items-center rounded-full bg-[#ef4444] text-white shadow-[0_8px_18px_rgb(0_0_0/0.32)] transition hover:bg-[#f87171] focus:outline-none focus:ring-2 focus:ring-white/70"
                   type="button"
-                  :title="asset.type === 'audio' ? '删除音频' : '删除视频'"
+                  :title="asset.type === 'audio' ? '删除音频' : asset.type === 'image' ? '删除图片' : '删除视频'"
                   data-asset-drag-block
                   draggable="false"
                   :aria-label="deleteAssetLabel(asset)"
@@ -1346,13 +1386,13 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
                 </button>
 
                 <button
-                  v-if="asset.type === 'video' || asset.type === 'audio'"
+                  v-if="asset.type === 'video' || asset.type === 'audio' || asset.type === 'image'"
                   class="grid size-6 place-items-center rounded-full bg-[#2f9df5] text-white shadow-[0_8px_18px_rgb(0_0_0/0.32)] transition hover:bg-[#43afff] focus:outline-none focus:ring-2 focus:ring-white/70"
                   type="button"
                   title="添加到时间线"
                   data-asset-drag-block
                   draggable="false"
-                  :aria-label="`添加${asset.type === 'audio' ? '音频' : '视频'} ${asset.name} 到时间线`"
+                  :aria-label="`添加${addAssetTypeLabel(asset)} ${asset.name} 到时间线`"
                   @click.stop="$emit('addAssetToTimeline', asset.id)"
                   @dblclick.stop
                   @dragstart.stop.prevent
@@ -1419,7 +1459,7 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
                 <span class="mt-0.5 block truncate text-[10px] font-semibold text-[#687386]">{{ assetMeta(asset) }}</span>
               </span>
               <span class="flex items-center gap-1">
-                <span v-if="isVideoAddedToTimeline(asset)" class="rounded border border-[#5eead4]/30 bg-[#0f2f2d] px-1.5 py-0.5 text-[8px] font-black text-[#6ee7d8]">已添加</span>
+                <span v-if="isVisualAddedToTimeline(asset)" class="rounded border border-[#5eead4]/30 bg-[#0f2f2d] px-1.5 py-0.5 text-[8px] font-black text-[#6ee7d8]">已添加</span>
                 <span class="rounded bg-black/35 px-1.5 py-0.5 text-[8px] font-black text-white/80">{{ assetKindLabel(asset.type) }}</span>
               </span>
             </button>
@@ -1428,7 +1468,7 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
               v-if="isAssetDeletable(asset)"
               class="grid size-8 place-items-center self-center rounded-full bg-[#ef4444] text-white shadow-[0_8px_18px_rgb(0_0_0/0.24)] transition hover:bg-[#f87171] focus:outline-none focus:ring-2 focus:ring-white/70"
               type="button"
-              :title="asset.type === 'audio' ? '删除音频' : '删除视频'"
+              :title="asset.type === 'audio' ? '删除音频' : asset.type === 'image' ? '删除图片' : '删除视频'"
               data-asset-drag-block
               draggable="false"
               :aria-label="deleteAssetLabel(asset)"

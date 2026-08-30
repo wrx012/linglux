@@ -20,6 +20,7 @@ import {
   X,
 } from "@lucide/vue";
 import AgentChatPanel from "./AgentChatPanel.vue";
+import DynamicComicImportDialog from "./DynamicComicImportDialog.vue";
 import ExportDialog from "./ExportDialog.vue";
 import InspectorPanel from "./InspectorPanel.vue";
 import MediaBin from "./MediaBin.vue";
@@ -58,6 +59,8 @@ import type {
   TtsStatus,
   TtsVoice,
 } from "../../types/editor";
+import type { DynamicComicAspectRatio } from "../../lib/dynamicComicImport";
+import { createDynamicComicShots, DYNAMIC_COMIC_RESOLUTIONS, naturalSortImageAssets } from "../../lib/dynamicComicImport";
 import {
   calculateProjectDuration,
   closeTimelineTrackGaps,
@@ -192,6 +195,9 @@ const storyboardProgress = ref(0);
 const storyboardStatus = ref("");
 const storyboardError = ref("");
 const activeStoryboardTaskId = ref("");
+const isDynamicComicImportOpen = ref(false);
+const dynamicComicImportAssets = ref<MediaAsset[]>([]);
+const dynamicComicImportError = ref("");
 const saveState = ref("已保存");
 const history = ref<ProjectHistoryEntry[]>([]);
 const future = ref<ProjectHistoryEntry[]>([]);
@@ -237,7 +243,7 @@ interface HistoryEntityChange<T extends { id: string }> {
 
 type ProjectHistorySettings = Pick<
   EditorProject,
-  "name" | "sourceNodeId" | "mainTrackMagnetEnabled" | "fps" | "resolution"
+  "name" | "sourceNodeId" | "mode" | "dynamicComic" | "mainTrackMagnetEnabled" | "fps" | "resolution"
 >;
 type TrackHistorySettings = Omit<TimelineTrack, "clips">;
 
@@ -729,7 +735,7 @@ function deleteAssets(assetIds: string[]) {
   const requestedAssetIds = new Set(assetIds);
   const deletedAssetIds = new Set(
     project.value.assets
-      .filter((asset) => requestedAssetIds.has(asset.id) && (asset.type === "video" || asset.type === "audio"))
+      .filter((asset) => requestedAssetIds.has(asset.id) && (asset.type === "video" || asset.type === "audio" || asset.type === "image"))
       .map((asset) => asset.id),
   );
 
@@ -743,13 +749,22 @@ function deleteAssets(assetIds: string[]) {
   const affectedTrackIds = project.value.tracks
     .filter((track) => track.clips.some((clip) => deletedAssetIds.has(clip.assetId)))
     .map((track) => track.id);
+  const removesDynamicComicShots = Boolean(
+    project.value.dynamicComic?.shots.some((shot) => shot.visualAssetId && deletedAssetIds.has(shot.visualAssetId)),
+  );
 
   pushHistory({
+    settings: removesDynamicComicShots,
     assetIds: [...deletedAssetIds],
     captureAssetOrder: true,
     wholeTrackIds: affectedTrackIds,
   });
   project.value.assets = project.value.assets.filter((item) => !deletedAssetIds.has(item.id));
+  if (project.value.dynamicComic) {
+    project.value.dynamicComic.shots = project.value.dynamicComic.shots
+      .filter((shot) => !shot.visualAssetId || !deletedAssetIds.has(shot.visualAssetId))
+      .map((shot, index) => ({ ...shot, order: index }));
+  }
   for (const assetId of deletedAssetIds) {
     importedAssetFiles.delete(assetId);
   }
@@ -1310,6 +1325,94 @@ async function importMediaPaths(paths: string[]) {
       importTaskStatus.value = "";
     }
   }
+}
+
+async function prepareDynamicComicFiles(files: File[]) {
+  const beforeIds = new Set(project.value.assets.map((asset) => asset.id));
+  await importMediaFiles(files.filter((file) => file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif)$/i.test(file.name)));
+  openDynamicComicImport(project.value.assets.filter((asset) => !beforeIds.has(asset.id) && asset.type === "image"));
+}
+
+async function prepareDynamicComicPaths(paths: string[]) {
+  dynamicComicImportError.value = "";
+  const imports: ImportedAssetContext[] = [];
+  const errors: string[] = [];
+  importTaskStatus.value = "准备导入图片序列";
+  for (const path of paths) {
+    try {
+      const imported = await runMediaTask<ImportedMediaFile[]>(
+        "start_import_media",
+        { projectId: project.value.id, paths: [path] },
+        (task) => {
+          trackActiveImportTask(task);
+          importTaskStatus.value = `${task.status} ${Math.round(task.progress)}%`;
+        },
+      );
+      const context = imported[0] ? createManagedImportedAsset(imported[0], imports.length) : undefined;
+      if (context?.asset.type === "image") imports.push(context);
+      else errors.push(`${path.split(/[\\/]/).pop() ?? path}：不是受支持的图片`);
+    } catch (error) {
+      errors.push(`${path.split(/[\\/]/).pop() ?? path}：${normalizeExportError(error)}`);
+    }
+  }
+  if (imports.length) {
+    const assets = imports.map((item) => item.asset);
+    pushHistory({ assetIds: assets.map((asset) => asset.id), captureAssetOrder: true });
+    project.value.assets.push(...assets);
+    markDirty();
+    void hydrateManagedMediaDerivatives(imports);
+    openDynamicComicImport(assets);
+    dynamicComicImportError.value = errors.length ? `${errors.length} 张图片导入失败：${errors.slice(0, 3).join("；")}` : "";
+  } else {
+    dynamicComicImportError.value = errors[0] ?? "没有成功导入可用图片；请检查文件格式和读取权限。";
+    shortcutStatusTone.value = "warning";
+    shortcutStatusMessage.value = dynamicComicImportError.value;
+  }
+  if (activeImportTaskIds.value.length === 0) importTaskStatus.value = "";
+}
+
+function openDynamicComicImport(assets: MediaAsset[]) {
+  if (assets.length === 0) return;
+  if (isDynamicComicImportOpen.value) {
+    const existingIds = new Set(dynamicComicImportAssets.value.map((asset) => asset.id));
+    dynamicComicImportAssets.value = [
+      ...dynamicComicImportAssets.value,
+      ...naturalSortImageAssets(assets).filter((asset) => !existingIds.has(asset.id)),
+    ];
+    return;
+  }
+  dynamicComicImportAssets.value = naturalSortImageAssets(assets);
+  dynamicComicImportError.value = "";
+  isDynamicComicImportOpen.value = true;
+}
+
+function createDynamicComicSequence(request: { assetIds: string[]; aspectRatio: DynamicComicAspectRatio; duration: number }) {
+  const assets = request.assetIds.flatMap((id) => {
+    const asset = project.value.assets.find((item) => item.id === id && item.type === "image");
+    return asset ? [asset] : [];
+  });
+  if (!assets.length) return;
+  const track = project.value.tracks.find((item) => item.type === "video");
+  if (!track) {
+    dynamicComicImportError.value = "当前工程缺少主视觉轨，无法创建镜头。";
+    return;
+  }
+  const existingShots = project.value.dynamicComic?.shots ?? [];
+  const start = getTrackAppendTime(track);
+  pushHistory({ settings: true, wholeTrackIds: [track.id] });
+  const created = createDynamicComicShots(assets, track.id, request.duration, existingShots.length, start);
+  project.value.mode = "dynamicComic";
+  project.value.dynamicComic = { shots: [...existingShots, ...created.shots] };
+  project.value.resolution = { ...DYNAMIC_COMIC_RESOLUTIONS[request.aspectRatio] };
+  track.clips.push(...created.clips);
+  track.clips.sort((left, right) => left.start - right.start);
+  selectedClipId.value = created.clips[0]?.id ?? "";
+  clearSelectedAssets();
+  isDynamicComicImportOpen.value = false;
+  dynamicComicImportAssets.value = [];
+  shortcutStatusTone.value = "success";
+  shortcutStatusMessage.value = `已创建 ${created.shots.length} 个动态漫镜头`;
+  markDirty();
 }
 
 async function cancelImport() {
@@ -2094,6 +2197,8 @@ function projectHistorySettings(projectValue: EditorProject): ProjectHistorySett
   return {
     name: projectValue.name,
     sourceNodeId: projectValue.sourceNodeId,
+    mode: projectValue.mode,
+    dynamicComic: projectValue.dynamicComic ? cloneHistoryValue(projectValue.dynamicComic) : undefined,
     mainTrackMagnetEnabled: projectValue.mainTrackMagnetEnabled,
     fps: projectValue.fps,
     resolution: cloneHistoryValue(projectValue.resolution),
@@ -3387,6 +3492,8 @@ function applyProjectHistoryEntry(entry: ProjectHistoryEntry, direction: "before
   if (settings) {
     project.value.name = settings.name;
     project.value.sourceNodeId = settings.sourceNodeId;
+    project.value.mode = settings.mode;
+    project.value.dynamicComic = settings.dynamicComic ? cloneHistoryValue(settings.dynamicComic) : undefined;
     project.value.mainTrackMagnetEnabled = settings.mainTrackMagnetEnabled;
     project.value.fps = settings.fps;
     project.value.resolution = cloneHistoryValue(settings.resolution);
@@ -4876,6 +4983,8 @@ function cleanupImportedObjectUrls() {
           @select-assets="selectAssets"
           @import-files="importMediaFiles"
           @import-paths="importMediaPaths"
+          @import-image-sequence-files="prepareDynamicComicFiles"
+          @import-image-sequence-paths="prepareDynamicComicPaths"
           @convert-storyboard="prepareStoryboardConversion"
           @add-asset-to-timeline="addAssetToTimeline"
           @add-audio-preset-to-timeline="addAudioPresetToTimeline"
@@ -5088,6 +5197,15 @@ function cleanupImportedObjectUrls() {
       @close="isStoryboardDialogOpen = false"
       @generate="generateStoryboardVideo"
       @cancel="cancelStoryboardGeneration"
+    />
+    <DynamicComicImportDialog
+      :open="isDynamicComicImportOpen"
+      :assets="dynamicComicImportAssets"
+      :error="dynamicComicImportError"
+      @close="isDynamicComicImportOpen = false"
+      @confirm="createDynamicComicSequence"
+      @add-files="prepareDynamicComicFiles"
+      @add-paths="prepareDynamicComicPaths"
     />
     </UiDashboardPanel>
   </UiDashboardGroup>
