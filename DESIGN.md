@@ -39,7 +39,7 @@ Linglux 面向希望在本地桌面环境中完成专业视频创作的用户：
 
 - 工作流侧的图像/视频 AI provider 调用仍主要是模拟或 host bridge smoke test；剪辑 Agent 的聊天 provider 已是真实调用。
 - 真实项目打开/最近项目列表、素材缺失恢复、跨项目资产复用和完整文件浏览还未产品化。
-- 密钥已进入操作系统凭据库，但凭据迁移/恢复、provider 成本统计、失败重试策略和任务日志 UI 还未完成。
+- 密钥仅保存在 Rust 宿主的当前进程内存中，避免桌面开发构建反复触发系统凭据授权；provider 成本统计、失败重试策略和任务日志 UI 还未完成。
 - FFmpeg 依赖当前通过本机 PATH 或常见安装目录发现，尚未作为 bundle sidecar 完整交付。
 
 ## Technology Stack
@@ -201,7 +201,7 @@ Child components remain focused:
 The editor Agent is a bounded domain agent rather than GUI automation:
 
 1. Vue creates a sanitized snapshot containing IDs, names, types, durations, track/clip timing, locks, selection and playhead.
-2. The Rust host loads the provider key from the OS credential vault and runs at most four model rounds and twelve read-only tool calls.
+2. The Rust host loads the provider key from current-session memory and runs at most four model rounds and twelve read-only tool calls.
 3. The model may inspect assets, timeline and selection, then either ask a clarification or call `propose_edit_plan`.
 4. Vue dry-runs the typed plan against a project clone. Plans use integer milliseconds and carry the editor version they were generated from.
 5. The user confirms the plan. All affected tracks are applied as one existing history transaction, so one undo restores the pre-Agent state.
@@ -497,8 +497,8 @@ Current Tauri security posture:
 
 - `src-tauri/capabilities/default.json` grants `core:default` and `dialog:allow-open`.
 - Asset protocol is enabled only for `$APPDATA/**`.
-- Provider metadata is persisted under the Tauri app config directory while API keys are stored in the operating-system credential vault; the WebView receives only masked key state.
-- A legacy plaintext `api-key-settings.json` key is migrated to the credential vault and removed from the JSON payload. If the credential vault is unavailable, a newly entered key remains session-only.
+- Provider metadata is persisted under the Tauri app config directory while API keys remain only in Rust host memory for the current process; the WebView receives only masked key state.
+- A legacy plaintext `api-key-settings.json` key is migrated into current-session memory and removed from the JSON payload.
 - Web preview does not call Agent providers and does not persist a usable API key.
 - Export reveal is guarded so arbitrary paths are not opened.
 
@@ -509,7 +509,7 @@ Security rules:
 - Mask keys in UI summaries.
 - Do not broaden Tauri permissions unless a user-visible feature requires it.
 - Scope file system, shell, network and secret-storage access narrowly.
-- Keep provider secrets in the OS credential vault; JSON sidecars, localStorage, task journals, logs, and project/export data may contain metadata or masked state only.
+- Keep provider secrets in Rust host memory for the current session; JSON sidecars, localStorage, task journals, logs, and project/export data may contain metadata or masked state only.
 
 ## UI Module And Interaction Direction
 
