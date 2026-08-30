@@ -262,7 +262,7 @@ Do not hand-edit generated Tauri schemas under `src-tauri/gen/` or generated Nux
 
 Keep changes scoped to the requested feature or fix. Avoid broad refactors while the app is still in prototype shape unless they directly reduce risk or unblock the requested work.
 
-Follow `CONTRIBUTING.md` when preparing a pull request. Its title, description, validation, screenshot, changelog, and repository-hygiene requirements are enforced by the pull request standards workflow; do not duplicate or weaken those rules here.
+Follow `CONTRIBUTING.md` when preparing Issues and pull requests. Its title, form, validation, screenshot, changelog, sensitive-data, and repository-hygiene requirements are enforced by repository workflows; do not duplicate or weaken those rules here.
 
 If a change affects both frontend and Tauri, update both sides in the same pass and validate the bridge. If source code and docs disagree, prefer the current source for implementation details and update docs when the task includes documentation work.
 

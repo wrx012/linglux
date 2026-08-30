@@ -1,6 +1,25 @@
 # Contributing to Linglux
 
-Linglux uses an enforced pull request policy. Pull requests targeting `main` must use the repository template and pass every required status check before merging.
+Linglux uses enforced Issue and pull request policies. Use the repository forms for new Issues, and ensure pull requests targeting `main` pass every required status check before merging.
+
+## Issues
+
+Use the Bug report, Feature request, or Question form. Blank Issues are disabled. Do not use a public Issue for vulnerabilities, exposed credentials, private media, personal data, or other sensitive material; follow `SECURITY.md` and use GitHub Private Vulnerability Reporting.
+
+Issue titles must use this format:
+
+```text
+type(area): concise summary
+```
+
+- Use `bug`, `feat`, or `question` as the type selected by the form.
+- Use one primary area: `agent`, `desktop`, `editor`, `export`, `media-core`, `storyboard`, `tts`, `workflow`, or `repository`.
+- Make the title area match the Primary area field, keep the complete title at 100 characters or fewer, and do not end it with a period.
+- Complete every required form field and sanitize diagnostics before submission.
+
+Issue automation assigns the type and primary area labels, validates required information, and initializes a priority from the structured Impact response. Questions default to `priority: low`. Maintainers may override priority, add secondary labels, and move the Issue through `status: needs triage`, `status: in progress`, `status: blocked`, or `status: next release`.
+
+Incomplete Issues remain open with `status: needs info`. Edit the title or description to address the single policy comment; validation reruns automatically and removes that label after correction.
 
 ## Pull Request Titles
 
@@ -61,7 +80,7 @@ Ready-for-review pull requests enter the automated review workflow. Review label
 - `review: needs attention` — review findings require attention.
 - `status: blocked` — a known dependency or merge-blocking problem remains.
 
-Area and priority labels may be applied by maintainers. Authors should update the pull request after every material revision and resolve review findings before requesting another review.
+Pull request area and priority labels may be applied by maintainers. Authors should update the pull request after every material revision and resolve review findings before requesting another review.
 
 ## Repository Hygiene
 

@@ -1,0 +1,93 @@
+name: Feature request
+description: Propose a user or contributor capability for Linglux.
+title: "feat(area): "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem before the solution. Replace `area` in the title with the primary area selected below.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Explain the limitation, affected audience, and why it matters.
+      placeholder: What cannot be done effectively today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the capability and observable result, not only a UI control or implementation detail.
+      placeholder: What should users or contributors be able to accomplish?
+    validations:
+      required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Proposed workflow
+      description: Walk through the intended interaction or system behavior.
+      placeholder: Describe the expected end-to-end workflow.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List concrete outcomes that would make the request complete.
+      placeholder: |
+        - [ ] The user can...
+        - [ ] Failure states explain...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds or alternative designs. Write N/A when none apply.
+      placeholder: N/A
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      options:
+        - Agent
+        - Desktop
+        - Editor
+        - Export
+        - Media core
+        - Storyboard
+        - TTS
+        - Workflow
+        - Repository
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      description: Select the expected value. Maintainers may adjust the resulting priority.
+      options:
+        - High — Unblocks a core workflow or required capability
+        - Medium — Meaningful improvement to a common workflow
+        - Low — Nice-to-have or limited-scope improvement
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: sensitive-data
+    attributes:
+      label: Sensitive data
+      options:
+        - label: I confirm that this request contains no credentials, private media, personal data, or undisclosed security vulnerability details.
+          required: true

@@ -2,7 +2,7 @@ name: Issue triage
 
 on:
   issues:
-    types: [opened, reopened]
+    types: [opened, edited, reopened]
 
 permissions:
   contents: read
@@ -13,131 +13,111 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  label-and-comment:
+  validate-and-triage:
     runs-on: ubuntu-latest
     steps:
-      - name: Apply triage labels and notify maintainers
+      - name: Check out repository policy
+        uses: actions/checkout@v4
+
+      - name: Validate Issue policy
+        id: policy
+        run: node .github/scripts/issue-policy.mjs --event "$GITHUB_EVENT_PATH"
+
+      - name: Apply labels and maintain policy comment
         uses: actions/github-script@v8
+        env:
+          POLICY_RESULT: ${{ steps.policy.outputs.result }}
         with:
           script: |
+            const path = require("node:path");
+            const { pathToFileURL } = require("node:url");
+            const policyUrl = pathToFileURL(
+              path.join(process.env.GITHUB_WORKSPACE, ".github/scripts/issue-policy.mjs"),
+            ).href;
+            const {
+              buildLabelPlan,
+              parseAutomaticArea,
+              parseAutomaticPriority,
+              renderPolicyComment,
+            } = await import(policyUrl);
+
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const issue = context.payload.issue;
-            const issue_number = issue.number;
-            const marker = `<!-- issue-triage:${issue.id} -->`;
-            const text = `${issue.title}\n${issue.body || ""}`.toLowerCase();
-
-            const labelDefinitions = {
-              "status: needs triage": {
-                color: "D4C5F9",
-                description: "Needs clarification, prioritization, or ownership.",
-              },
-              bug: {
-                color: "D73A4A",
-                description: "Something isn't working.",
-              },
-              enhancement: {
-                color: "A2EEEF",
-                description: "New feature or request.",
-              },
-              "area: agent": {
-                color: "7057FF",
-                description: "AI agent, providers, plans, and conversations.",
-              },
-              "area: desktop": {
-                color: "1D4ED8",
-                description: "Tauri host, native integration, permissions, and packaging.",
-              },
-              "area: editor": {
-                color: "0075CA",
-                description: "Timeline, preview, inspector, and editor workspace.",
-              },
-              "area: export": {
-                color: "0366D6",
-                description: "Rendering, encoding, presets, and output handling.",
-              },
-              "area: media-core": {
-                color: "0052CC",
-                description: "Managed media, tasks, cache, derivatives, and FFmpeg.",
-              },
-              "area: storyboard": {
-                color: "0E8A16",
-                description: "Storyboard detection, frame extraction, and video generation.",
-              },
-              "area: tts": {
-                color: "8B5CF6",
-                description: "Text-to-speech setup, synthesis, preview, and output.",
-              },
-              "area: workflow": {
-                color: "006B75",
-                description: "Node canvas, workflow automation, jobs, and artifacts.",
-              },
-            };
-
-            const bugPattern = /(^|\s)(fix|bug)(\b|[:(])|regression|crash|error|broken|失败|崩溃|错误|异常|无法/;
-            const enhancementPattern = /(^|\s)(feat|feature)(\b|[:(])|enhancement|request|support|新增|功能|需求|支持|优化/;
-            const areaPatterns = new Map([
-              ["area: agent", /\bagent\b|provider|api[ -]?key|\bmodel\b|智能体|代理|模型|密钥|对话/],
-              ["area: desktop", /tauri|desktop|window|permission|macos|native|桌面|窗口|权限|打包/],
-              ["area: editor", /editor|timeline|preview|inspector|\bclip\b|编辑器|时间线|预览|检查器|片段|剪辑/],
-              ["area: export", /export|render|encode|encoding|\bmp4\b|导出|渲染|编码/],
-              ["area: media-core", /media[ -]?core|ffmpeg|import|proxy|thumbnail|waveform|cache|媒体内核|媒体核心|导入|代理文件|缩略图|波形|缓存/],
-              ["area: storyboard", /storyboard|frame[ -]?sequence|grid|分镜|拆帧|宫格|画格/],
-              ["area: tts", /\btts\b|speech|voice|cosyvoice|语音|配音|音色/],
-              ["area: workflow", /workflow|\bnode\b|canvas|artifact|工作流|节点|画布|工件/],
-            ]);
-
-            const labels = new Set(["status: needs triage"]);
-            if (bugPattern.test(text)) labels.add("bug");
-            else if (enhancementPattern.test(text)) labels.add("enhancement");
-            for (const [name, pattern] of areaPatterns) {
-              if (pattern.test(text)) labels.add(name);
-            }
-
-            async function ensureLabel(name) {
-              const definition = labelDefinitions[name];
-              try {
-                await github.rest.issues.getLabel({ owner, repo, name });
-              } catch (error) {
-                if (error.status !== 404) throw error;
-                await github.rest.issues.createLabel({
-                  owner,
-                  repo,
-                  name,
-                  color: definition.color,
-                  description: definition.description,
-                });
-              }
-            }
-
-            for (const name of labels) await ensureLabel(name);
-            await github.rest.issues.addLabels({
-              owner,
-              repo,
-              issue_number,
-              labels: [...labels],
-            });
+            const issue_number = context.payload.issue.number;
+            const result = JSON.parse(process.env.POLICY_RESULT);
+            const currentLabels = context.payload.issue.labels.map((label) =>
+              typeof label === "string" ? label : label.name,
+            );
 
             const comments = await github.paginate(
               github.rest.issues.listComments,
               { owner, repo, issue_number, per_page: 100 },
             );
-            if (comments.some((comment) => comment.body?.includes(marker))) {
-              core.info(`Issue ${issue_number} was already announced for triage.`);
-              return;
+            const policyComment = comments.find((comment) =>
+              comment.user?.type === "Bot" && comment.body?.includes("<!-- issue-policy -->"),
+            );
+            const previousAutomaticPriority = parseAutomaticPriority(policyComment?.body);
+            const previousAutomaticArea = parseAutomaticArea(policyComment?.body);
+            const plan = buildLabelPlan({
+              result,
+              currentLabels,
+              previousAutomaticPriority,
+              previousAutomaticArea,
+              action: context.payload.action,
+            });
+
+            const labelDefinitions = {
+              bug: { color: "D73A4A", description: "Something isn't working." },
+              enhancement: { color: "A2EEEF", description: "New feature or request." },
+              question: { color: "D876E3", description: "Further information is requested." },
+              "area: agent": { color: "7057FF", description: "AI agent, providers, plans, and conversations." },
+              "area: desktop": { color: "1D4ED8", description: "Tauri host, native integration, permissions, and packaging." },
+              "area: editor": { color: "0075CA", description: "Timeline, preview, inspector, and editor workspace." },
+              "area: export": { color: "0366D6", description: "Rendering, encoding, presets, and output handling." },
+              "area: media-core": { color: "0052CC", description: "Managed media, tasks, cache, derivatives, and FFmpeg." },
+              "area: storyboard": { color: "0E8A16", description: "Storyboard detection, frame extraction, and video generation." },
+              "area: tts": { color: "8B5CF6", description: "Text-to-speech setup, synthesis, preview, and output." },
+              "area: workflow": { color: "006B75", description: "Node canvas, workflow automation, jobs, and artifacts." },
+              "area: repository": { color: "6F42C1", description: "Repository policy, documentation, CI, dependencies, and maintenance." },
+              "priority: critical": { color: "B60205", description: "Requires immediate attention or blocks critical workflows." },
+              "priority: high": { color: "D93F0B", description: "Important work that should be addressed soon." },
+              "priority: medium": { color: "FBCA04", description: "Normal priority with meaningful product impact." },
+              "priority: low": { color: "F9D0C4", description: "Nice to have or safe to defer." },
+              "status: needs triage": { color: "D4C5F9", description: "Needs clarification, prioritization, or ownership." },
+              "status: needs info": { color: "C5DEF5", description: "Waiting for the author to provide required information." },
+            };
+
+            async function ensureLabel(name) {
+              const definition = labelDefinitions[name];
+              if (!definition) return;
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({ owner, repo, name, ...definition });
+              }
             }
 
-            const appliedLabels = [...labels].map((name) => `\`${name}\``).join("、");
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number,
-              body: [
-                marker,
-                `@${issue.user.login} 感谢提交 Issue。系统已根据标题和描述添加初始标签：${appliedLabels}。`,
-                "",
-                "@Bald-M 请确认分类、补充 `priority:*`，并在信息完整后更新状态标签。",
-                "",
-                "> 自动分类可能不准确；维护者确认后的标签为准。",
-              ].join("\n"),
-            });
+            for (const name of plan.add) await ensureLabel(name);
+            for (const name of plan.remove) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+            if (plan.add.length > 0) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: plan.add });
+            }
+
+            const body = renderPolicyComment(result, plan.automaticPriority, plan.automaticArea);
+            if (policyComment) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: policyComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
