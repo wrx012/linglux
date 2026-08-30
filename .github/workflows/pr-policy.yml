@@ -1,0 +1,171 @@
+name: Pull request standards
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, reopened, synchronize, ready_for_review, converted_to_draft]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pull-request-standards-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: PR policy
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.policy.outputs.frontend }}
+      rust: ${{ steps.policy.outputs.rust }}
+      mediaCore: ${{ steps.policy.outputs.mediaCore }}
+      packaging: ${{ steps.policy.outputs.packaging }}
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Validate pull request policy
+        id: policy
+        run: >-
+          node .github/scripts/pr-policy.mjs
+          --event "$GITHUB_EVENT_PATH"
+          --base "${{ github.event.pull_request.base.sha }}"
+          --head "${{ github.event.pull_request.head.sha }}"
+
+      - name: Test policy validator
+        run: node --test .github/scripts/pr-policy.node.mjs
+
+  frontend:
+    name: Frontend validation
+    needs: policy
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip unaffected validation
+        if: needs.policy.outputs.frontend != 'true'
+        run: echo "No frontend paths changed."
+
+      - name: Check out pull request head
+        if: needs.policy.outputs.frontend == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up pnpm
+        if: needs.policy.outputs.frontend == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Set up Node.js
+        if: needs.policy.outputs.frontend == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        if: needs.policy.outputs.frontend == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Run frontend tests
+        if: needs.policy.outputs.frontend == 'true'
+        run: pnpm test
+
+      - name: Build frontend
+        if: needs.policy.outputs.frontend == 'true'
+        run: pnpm build
+
+  rust:
+    name: Rust validation
+    needs: policy
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip unaffected validation
+        if: needs.policy.outputs.rust != 'true'
+        run: echo "No Rust or Cargo paths changed."
+
+      - name: Check out pull request head
+        if: needs.policy.outputs.rust == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Rust
+        if: needs.policy.outputs.rust == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri system dependencies
+        if: needs.policy.outputs.rust == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            wget
+
+      - name: Cache Rust build output
+        if: needs.policy.outputs.rust == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Check Tauri workspace
+        if: needs.policy.outputs.rust == 'true'
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Test media core
+        if: needs.policy.outputs.mediaCore == 'true'
+        run: cargo test --manifest-path src-tauri/Cargo.toml -p linglux-media-core
+
+  packaging:
+    name: Packaging validation
+    needs: policy
+    if: always()
+    runs-on: macos-14
+    steps:
+      - name: Skip unaffected validation
+        if: needs.policy.outputs.packaging != 'true'
+        run: echo "No packaging or Tauri configuration paths changed."
+
+      - name: Check out pull request head
+        if: needs.policy.outputs.packaging == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up pnpm
+        if: needs.policy.outputs.packaging == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Set up Node.js
+        if: needs.policy.outputs.packaging == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Set up Rust
+        if: needs.policy.outputs.packaging == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        if: needs.policy.outputs.packaging == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Build desktop application
+        if: needs.policy.outputs.packaging == 'true'
+        run: pnpm tauri:build
