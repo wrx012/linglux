@@ -141,7 +141,7 @@ To configure it:
 1. Open **Settings → Model Service**.
 2. Choose DeepSeek, OpenAI, OpenRouter, or a custom HTTPS OpenAI-compatible endpoint.
 3. Confirm the Base URL and editable chat model ID.
-4. Enter an API key. Desktop keys are stored by the Rust host in the operating-system credential vault and are never returned to the WebView. If the vault is unavailable, the key remains in memory for the current app session only.
+4. Enter an API key. Desktop keys remain in Rust host memory for the current app session only, are never returned to the WebView, and are cleared when the app exits.
 
 DeepSeek defaults to `https://api.deepseek.com` and `deepseek-v4-flash`. Provider calls and persistent chat are desktop-only; the web preview renders the UI without calling a remote model.
 

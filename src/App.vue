@@ -2629,7 +2629,7 @@ onUnmounted(() => {
               :ui="{ base: 'h-10 rounded bg-[#15151a] px-3 pr-11 text-[12px] text-[#d1d5db] ring-[#222228]', trailing: 'pe-1.5' }"
               :type="showApiKey ? 'text' : 'password'"
               autocomplete="off"
-              :placeholder="hasSavedApiKey ? '已保存在系统钥匙串；留空表示不更换' : '输入新的 API Key'"
+              :placeholder="hasSavedApiKey ? '当前会话已配置；留空表示不更换' : '输入新的 API Key'"
               spellcheck="false"
             >
               <template #trailing>
@@ -2653,7 +2653,7 @@ onUnmounted(() => {
             <span class="min-w-0 truncate">{{ apiKeyMessage }}</span>
           </div>
           <p class="text-[9px] font-semibold leading-4 text-[#596273]">
-            桌面端密钥由 Rust 宿主持有并优先写入系统钥匙串；钥匙串不可用时仅保留当前会话。AI 对话不会获得密钥、媒体路径或原始媒体文件。
+            桌面端密钥仅由 Rust 宿主保存在当前进程内存中，退出应用后自动清除。AI 对话不会获得密钥、媒体路径或原始媒体文件。
           </p>
         </section>
 

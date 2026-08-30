@@ -1,4 +1,3 @@
-use keyring::{Entry, Error as KeyringError};
 use linglux_media_core::{MediaCore, TaskEvent, TaskKind, TaskSnapshot};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -22,7 +21,6 @@ const AGENT_MAX_TOOL_CALLS: usize = 12;
 const AGENT_MAX_PLAN_OPERATIONS: usize = 64;
 const AGENT_MAX_PROMPT_CHARS: usize = 20_000;
 const AGENT_MAX_TOOL_ITEMS: usize = 200;
-const KEYRING_SERVICE: &str = "com.linglux.desktop.agent";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -273,35 +271,19 @@ trait SecretStore: Send + Sync {
     fn delete(&self, provider: &str) -> Result<(), String>;
 }
 
-struct SystemSecretStore;
+struct SessionOnlySecretStore;
 
-impl SecretStore for SystemSecretStore {
-    fn get(&self, provider: &str) -> Result<Option<String>, String> {
-        match keyring_entry(provider)
-            .map_err(|error| error.to_string())?
-            .get_password()
-        {
-            Ok(api_key) => Ok(Some(api_key)),
-            Err(KeyringError::NoEntry) => Ok(None),
-            Err(error) => Err(error.to_string()),
-        }
+impl SecretStore for SessionOnlySecretStore {
+    fn get(&self, _provider: &str) -> Result<Option<String>, String> {
+        Ok(None)
     }
 
-    fn set(&self, provider: &str, api_key: &str) -> Result<(), String> {
-        keyring_entry(provider)
-            .map_err(|error| error.to_string())?
-            .set_password(api_key)
-            .map_err(|error| error.to_string())
+    fn set(&self, _provider: &str, _api_key: &str) -> Result<(), String> {
+        Err("系统凭据存储已禁用；API Key 仅在当前应用会话中保存。".to_string())
     }
 
-    fn delete(&self, provider: &str) -> Result<(), String> {
-        match keyring_entry(provider)
-            .map_err(|error| error.to_string())?
-            .delete_credential()
-        {
-            Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
-            Err(error) => Err(error.to_string()),
-        }
+    fn delete(&self, _provider: &str) -> Result<(), String> {
+        Ok(())
     }
 }
 
@@ -324,7 +306,7 @@ impl AgentRuntime {
             .user_agent("Linglux/0.1 editor-agent")
             .build()
             .map_err(|error| error.to_string())?;
-        Ok(Self::with_parts(client, Arc::new(SystemSecretStore)))
+        Ok(Self::with_parts(client, Arc::new(SessionOnlySecretStore)))
     }
 
     fn with_parts(client: Client, secret_store: Arc<dyn SecretStore>) -> Self {
@@ -499,7 +481,7 @@ pub fn save_agent_provider_settings(
     }
 
     if load_provider_api_key(&metadata.provider, &runtime).is_none() {
-        return Err("API Key 不能为空；系统钥匙串不可用时将仅在当前应用会话中保存。".to_string());
+        return Err("API Key 不能为空；密钥仅在当前应用会话中保存。".to_string());
     }
 
     save_provider_metadata(&app, &metadata)?;
@@ -514,7 +496,7 @@ pub fn clear_agent_provider_settings(
     let metadata = load_provider_metadata(&app).unwrap_or_default();
     runtime
         .clear_api_key(&metadata.provider)
-        .map_err(|error| format!("无法从系统钥匙串清除 API Key：{error}"))?;
+        .map_err(|error| format!("无法清除当前会话的 API Key：{error}"))?;
 
     Ok(provider_summary(&metadata, &runtime))
 }
@@ -1344,10 +1326,6 @@ fn provider_summary(
             .map(mask_api_key)
             .unwrap_or_else(|| "未配置".to_string()),
     }
-}
-
-fn keyring_entry(provider: &str) -> Result<Entry, KeyringError> {
-    Entry::new(KEYRING_SERVICE, provider)
 }
 
 fn load_provider_api_key(provider: &str, runtime: &AgentRuntime) -> Option<String> {
