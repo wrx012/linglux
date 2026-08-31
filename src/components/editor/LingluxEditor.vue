@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { Channel, convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ArrowLeft,
   Download,
@@ -39,6 +40,7 @@ import type {
 import type {
   AudioBeatMarker,
   AudioTrackPreset,
+  CharacterVoiceProfile,
   DynamicComicShot,
   EditSession,
   EditorExportResult,
@@ -83,6 +85,9 @@ import {
 } from "../../lib/editorAgent";
 import { planVideoBeatMarkerAlignment } from "../../lib/beatMarkerAlignment";
 import { createSpeechAssetName, validateTtsText } from "../../lib/tts";
+import { deleteCharacterVoiceProfile, resolveShotSpeechSettings } from "../../lib/characterVoiceProfiles";
+import { SpeechPreviewController } from "../../lib/speechPreview";
+import { createEditorProjectPersistence } from "../../lib/editorProjectPersistence";
 
 type EditorShortcutAction = "togglePlayback" | "splitClip" | "scrollTimelineLeft" | "scrollTimelineRight";
 type ShortcutModifier = "Alt" | "Control" | "Meta" | "Shift";
@@ -104,6 +109,16 @@ interface ImportedMetadata {
 
 interface ImportedMediaElementMetadata extends ImportedMetadata {
   isReliable: boolean;
+}
+
+interface GenerateSpeechOptions {
+  shotId?: string;
+  audition?: boolean;
+}
+
+interface AddGeneratedSpeechOptions {
+  shotId?: string;
+  addToTimeline?: boolean;
 }
 
 const EDITOR_SHORTCUT_STORAGE_KEY = "linglux-editor-shortcuts";
@@ -182,7 +197,8 @@ const ttsStatus = ref<TtsStatus>({
   state: "notInstalled",
   runtimeInstalled: false,
   modelInstalled: false,
-  requiredBytes: 3_400_000_000,
+  requiredBytes: 2_700_000_000,
+  legacyBytes: 0,
   voices: [],
   error: "仅桌面版 macOS Apple Silicon 支持。",
 });
@@ -191,6 +207,8 @@ const ttsProgress = ref(0);
 const ttsTaskStatus = ref("");
 const ttsError = ref("");
 const activeTtsTaskId = ref("");
+const previewingSpeechShotId = ref("");
+const speechPreview = new SpeechPreviewController();
 const isStoryboardDialogOpen = ref(false);
 const storyboardSource = ref<StoryboardSource>();
 const isStoryboardGenerating = ref(false);
@@ -204,6 +222,7 @@ const selectedShotIds = ref<string[]>(project.value.dynamicComic?.shots[0]?.id ?
 const dynamicComicImportAssets = ref<MediaAsset[]>([]);
 const dynamicComicImportError = ref("");
 const saveState = ref("已保存");
+let projectPersistence = createProjectPersistence();
 const history = ref<ProjectHistoryEntry[]>([]);
 const future = ref<ProjectHistoryEntry[]>([]);
 const importedObjectUrls = new Set<string>();
@@ -233,6 +252,10 @@ let activeClipTrim: {
 let playbackFrameId: number | undefined;
 let playbackLastTimestamp: number | undefined;
 let unlistenNativeDragDrop: (() => void) | undefined;
+let unlistenWindowClose: (() => void) | undefined;
+let isClosingWindow = false;
+let isEditorUnmounted = false;
+let sessionChangeGeneration = 0;
 let pendingHistoryCapture: PendingProjectHistoryCapture | undefined;
 
 interface ImportedAssetContext {
@@ -289,6 +312,7 @@ interface PendingProjectHistoryCapture {
   beforeAssets: Map<string, MediaAsset | undefined>;
   beforeAssetOrder?: string[];
   tracks: Map<string, PendingTrackHistoryCapture>;
+  coalesceKey?: string;
 }
 
 interface ProjectHistoryCaptureSpec {
@@ -298,6 +322,7 @@ interface ProjectHistoryCaptureSpec {
   wholeTrackIds?: string[];
   trackSettingsIds?: string[];
   clips?: Array<{ trackId: string; clipIds: string[] }>;
+  coalesceKey?: string;
 }
 
 interface AssetPointerDragStateBase {
@@ -531,13 +556,18 @@ let agentTurnGeneration = 0;
 
 watch(
   () => props.session,
-  (session) => {
+  async (session) => {
+    const changeGeneration = ++sessionChangeGeneration;
+    const previousPersistence = projectPersistence;
+    if (!(await previousPersistence.flush()) || changeGeneration !== sessionChangeGeneration) return;
+
     agentTurnGeneration += 1;
     const previousAgentTaskId = activeAgentTaskId.value;
     if (previousAgentTaskId && isTauri()) {
       void invoke("cancel_editor_agent_turn", { taskId: previousAgentTaskId }).catch(() => false);
     }
     stopPlaybackLoop();
+    stopDynamicComicSpeechPreview();
     isPlaying.value = false;
     isPreviewVideoClockActive.value = false;
     isPlayheadScrubbing.value = false;
@@ -548,6 +578,8 @@ watch(
     cancelAssetPointerDrag();
     cleanupImportedObjectUrls();
     project.value = cloneProject(session.project);
+    previousPersistence.dispose();
+    projectPersistence = createProjectPersistence(session.id);
     selectedClipId.value = findFirstClipId();
     if (selectedClipId.value) {
       clearSelectedAssets();
@@ -567,6 +599,7 @@ watch(
     activeAgentTaskId.value = "";
     isAgentRunning.value = false;
     saveState.value = session.isDirty ? "未保存" : "已保存";
+    if (session.isDirty && isTauri()) projectPersistence.markDirty();
     isInspectorOpen.value = false;
     void loadAgentConversation();
   },
@@ -574,6 +607,7 @@ watch(
 );
 
 onMounted(() => {
+  isEditorUnmounted = false;
   viewportQuery = window.matchMedia("(max-width: 900px)");
   isNarrowViewport.value = viewportQuery.matches;
   viewportQuery.addEventListener("change", handleViewportQueryChange);
@@ -594,6 +628,38 @@ onMounted(() => {
       .then((unlisten) => {
         unlistenNativeDragDrop = unlisten;
       });
+    void getCurrentWindow()
+      .onCloseRequested(async (event) => {
+        event.preventDefault();
+        if (isClosingWindow) return;
+
+        isClosingWindow = true;
+        let destroyed = false;
+
+        try {
+          if (await flushProjectPersistence()) {
+            await getCurrentWindow().destroy();
+            destroyed = true;
+          }
+        } catch (error) {
+          saveState.value = "保存失败";
+          shortcutStatusTone.value = "warning";
+          shortcutStatusMessage.value = normalizeExportError(error);
+        } finally {
+          if (!destroyed) isClosingWindow = false;
+        }
+      })
+      .then((unlisten) => {
+        if (isEditorUnmounted) {
+          unlisten();
+        } else {
+          unlistenWindowClose = unlisten;
+        }
+      })
+      .catch((error) => {
+        shortcutStatusTone.value = "warning";
+        shortcutStatusMessage.value = `无法监听窗口关闭事件：${normalizeExportError(error)}`;
+      });
   }
 
   if (selectedClip.value) {
@@ -604,15 +670,21 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  isEditorUnmounted = true;
+  sessionChangeGeneration += 1;
   agentTurnGeneration += 1;
   if (activeAgentTaskId.value && isTauri()) {
     void invoke("cancel_editor_agent_turn", { taskId: activeAgentTaskId.value }).catch(() => false);
   }
   stopPlaybackLoop();
+  stopDynamicComicSpeechPreview();
   cancelAssetPointerDrag();
   cleanupImportedObjectUrls();
+  projectPersistence.dispose();
   unlistenNativeDragDrop?.();
   unlistenNativeDragDrop = undefined;
+  unlistenWindowClose?.();
+  unlistenWindowClose = undefined;
   viewportQuery?.removeEventListener("change", handleViewportQueryChange);
   agentDrawerViewportQuery?.removeEventListener("change", handleAgentDrawerViewportQueryChange);
   window.removeEventListener("keydown", handleEditorKeydown);
@@ -757,9 +829,21 @@ function deleteAssets(assetIds: string[]) {
   const removesDynamicComicShots = Boolean(
     project.value.dynamicComic?.shots.some((shot) => shot.visualAssetId && deletedAssetIds.has(shot.visualAssetId)),
   );
+  const removesDynamicComicSpeech = Boolean(
+    project.value.dynamicComic?.shots.some((shot) => shot.speechAssetId && deletedAssetIds.has(shot.speechAssetId)),
+  );
+
+  const previewedShot = project.value.dynamicComic?.shots.find((shot) => shot.id === previewingSpeechShotId.value);
+  if (
+    previewedShot
+    && ((previewedShot.visualAssetId && deletedAssetIds.has(previewedShot.visualAssetId))
+      || (previewedShot.speechAssetId && deletedAssetIds.has(previewedShot.speechAssetId)))
+  ) {
+    stopDynamicComicSpeechPreview();
+  }
 
   pushHistory({
-    settings: removesDynamicComicShots,
+    settings: removesDynamicComicShots || removesDynamicComicSpeech,
     assetIds: [...deletedAssetIds],
     captureAssetOrder: true,
     wholeTrackIds: affectedTrackIds,
@@ -768,7 +852,11 @@ function deleteAssets(assetIds: string[]) {
   if (project.value.dynamicComic) {
     project.value.dynamicComic.shots = project.value.dynamicComic.shots
       .filter((shot) => !shot.visualAssetId || !deletedAssetIds.has(shot.visualAssetId))
-      .map((shot, index) => ({ ...shot, order: index }));
+      .map((shot, index) => ({
+        ...shot,
+        order: index,
+        speechAssetId: shot.speechAssetId && deletedAssetIds.has(shot.speechAssetId) ? undefined : shot.speechAssetId,
+      }));
   }
   for (const assetId of deletedAssetIds) {
     importedAssetFiles.delete(assetId);
@@ -1040,16 +1128,13 @@ function runMediaTask<TResult>(
 ): Promise<TResult> {
   return new Promise((resolve, reject) => {
     let settled = false;
-    let receivedEvent = false;
+    let lastUpdatedAtMs = -1;
     const onEvent = new Channel<MediaTaskEvent<TResult>>();
 
-    onEvent.onmessage = ({ task }) => {
-      receivedEvent = true;
+    const processTask = (task: MediaTaskSnapshot<TResult>) => {
+      if (settled || task.updatedAtMs < lastUpdatedAtMs) return;
+      lastUpdatedAtMs = task.updatedAtMs;
       onUpdate?.(task);
-
-      if (settled) {
-        return;
-      }
 
       if (task.state === "succeeded") {
         settled = true;
@@ -1067,16 +1152,13 @@ function runMediaTask<TResult>(
         reject(new Error("任务已取消。"));
       }
     };
+    onEvent.onmessage = ({ task }) => processTask(task);
 
     void invoke<MediaTaskSnapshot<TResult>>(command, {
       ...args,
       onEvent,
     })
-      .then((task) => {
-        if (!receivedEvent) {
-          onUpdate?.(task);
-        }
-      })
+      .then(processTask)
       .catch((error) => {
         if (!settled) {
           settled = true;
@@ -1113,7 +1195,10 @@ async function setupTts() {
   }
 }
 
-async function generateSpeech(request: { text: string; voice: TtsVoice; emotion: TtsEmotion; speed: number }) {
+async function generateSpeech(
+  request: { text: string; voice: TtsVoice; emotion: TtsEmotion; speed: number },
+  options: GenerateSpeechOptions = {},
+) {
   const validationError = validateTtsText(request.text);
   if (!isTauri() || isTtsBusy.value || validationError) {
     ttsError.value = validationError;
@@ -1126,9 +1211,23 @@ async function generateSpeech(request: { text: string; voice: TtsVoice; emotion:
   try {
     const speechRequest: SpeechSynthesisRequest = { projectId: project.value.id, ...request };
     const imported = await runMediaTask<ImportedMediaFile>("start_speech_synthesis", { request: speechRequest }, updateTtsTask);
-    addGeneratedSpeechToProject(imported, request.text);
-    ttsTaskStatus.value = "配音已添加到时间线";
+    addGeneratedSpeechToProject(imported, {
+      shotId: options.shotId,
+      addToTimeline: !options.audition,
+    });
+    if (options.audition && options.shotId) {
+      try {
+        await startDynamicComicSpeechPreview(options.shotId);
+        ttsTaskStatus.value = "试听已生成并开始播放";
+      } catch (error) {
+        ttsTaskStatus.value = "试听已生成";
+        ttsError.value = `配音已生成，但自动播放失败：${normalizeExportError(error)}。请点击“播放试听”重试。`;
+      }
+    } else {
+      ttsTaskStatus.value = "配音已添加到时间线";
+    }
   } catch (error) {
+    if (options.audition) stopDynamicComicSpeechPreview();
     ttsError.value = normalizeExportError(error);
   } finally {
     isTtsBusy.value = false;
@@ -1152,38 +1251,98 @@ async function cancelTts() {
   }
 }
 
-function addGeneratedSpeechToProject(imported: ImportedMediaFile, text: string) {
+function addGeneratedSpeechToProject(
+  imported: ImportedMediaFile,
+  options: AddGeneratedSpeechOptions = {},
+) {
   const context = createManagedImportedAsset(imported, 0);
   if (!context) throw new Error("生成的配音格式不受支持。");
   const asset = context.asset;
-  asset.name = createSpeechAssetName(text, project.value.assets.map((item) => item.name));
-  let track = project.value.tracks.find((item) => item.type === "audio");
-  const trackId = track?.id ?? `track-audio-${Date.now()}`;
-  pushHistory({ assetIds: [asset.id], captureAssetOrder: true, wholeTrackIds: [trackId] });
-  if (!track) {
+  asset.name = createSpeechAssetName(project.value.assets.map((item) => item.name));
+  const shot = options.shotId
+    ? project.value.dynamicComic?.shots.find((item) => item.id === options.shotId)
+    : undefined;
+  const addToTimeline = options.addToTimeline !== false;
+  let track = addToTimeline ? project.value.tracks.find((item) => item.type === "audio") : undefined;
+  const trackId = addToTimeline ? (track?.id ?? `track-audio-${Date.now()}`) : undefined;
+  pushHistory({
+    settings: Boolean(shot),
+    assetIds: [asset.id],
+    captureAssetOrder: true,
+    wholeTrackIds: trackId ? [trackId] : undefined,
+  });
+  if (addToTimeline && !track && trackId) {
     track = { id: trackId, type: "audio", label: "音频轨", muted: false, visible: true, mediaEnabled: true, locked: false, clips: [] };
     project.value.tracks.push(track);
   }
   project.value.assets.push(asset);
-  const start = clamp(playhead.value, 0, Math.max(project.value.duration, 0));
-  const clip = createTimelineClip({
-    id: `clip-${asset.id}-${Date.now()}`,
-    assetId: asset.id,
-    trackId: track.id,
-    name: asset.name,
-    type: "audio",
-    start,
-    duration: asset.duration,
-    volume: 0.82,
-  });
-  track.clips.push(clip);
-  track.clips.sort((left, right) => left.start - right.start);
-  selectedClipId.value = clip.id;
-  clearSelectedAssets();
-  libraryPreviewAssetId.value = "";
+  if (shot) shot.speechAssetId = asset.id;
+  if (addToTimeline && track) {
+    const start = clamp(playhead.value, 0, Math.max(project.value.duration, 0));
+    const clip = createTimelineClip({
+      id: `clip-${asset.id}-${Date.now()}`,
+      assetId: asset.id,
+      trackId: track.id,
+      name: asset.name,
+      type: "audio",
+      start,
+      duration: asset.duration,
+      volume: 0.82,
+    });
+    track.clips.push(clip);
+    track.clips.sort((left, right) => left.start - right.start);
+    selectedClipId.value = clip.id;
+    clearSelectedAssets();
+    libraryPreviewAssetId.value = "";
+  }
   markDirty();
   void hydrateManagedMediaDerivative(asset, { generateWaveform: true, generateProxy: false }).catch((error) => {
-    ttsError.value = `配音已添加，但波形生成失败：${normalizeExportError(error)}`;
+    ttsError.value = `配音已生成，但波形生成失败：${normalizeExportError(error)}`;
+  });
+  return asset;
+}
+
+function dynamicComicSpeechAsset(shotId: string) {
+  const shot = project.value.dynamicComic?.shots.find((item) => item.id === shotId);
+  const asset = shot?.speechAssetId
+    ? project.value.assets.find((item) => item.id === shot.speechAssetId)
+    : undefined;
+  return asset?.type === "audio" ? asset : undefined;
+}
+
+function stopDynamicComicSpeechPreview() {
+  speechPreview.stop();
+  previewingSpeechShotId.value = "";
+}
+
+async function startDynamicComicSpeechPreview(shotId: string) {
+  const asset = dynamicComicSpeechAsset(shotId);
+  if (!asset) throw new Error("该镜头还没有可试听的配音。请先生成单条试听");
+  previewingSpeechShotId.value = shotId;
+  try {
+    await speechPreview.play(asset.url, {
+      ended: () => {
+        if (previewingSpeechShotId.value === shotId) previewingSpeechShotId.value = "";
+      },
+      error: (error) => {
+        if (previewingSpeechShotId.value === shotId) previewingSpeechShotId.value = "";
+        ttsError.value = normalizeExportError(error);
+      },
+    });
+  } catch (error) {
+    if (previewingSpeechShotId.value === shotId) previewingSpeechShotId.value = "";
+    throw error;
+  }
+}
+
+function toggleDynamicComicSpeechPreview(shotId: string) {
+  if (previewingSpeechShotId.value === shotId) {
+    stopDynamicComicSpeechPreview();
+    return;
+  }
+  ttsError.value = "";
+  void startDynamicComicSpeechPreview(shotId).catch((error) => {
+    ttsError.value = `试听播放失败：${normalizeExportError(error)}`;
   });
 }
 
@@ -1407,7 +1566,10 @@ function createDynamicComicSequence(request: { assetIds: string[]; aspectRatio: 
   pushHistory({ settings: true, wholeTrackIds: [track.id] });
   const created = createDynamicComicShots(assets, track.id, request.duration, existingShots.length, start);
   project.value.mode = "dynamicComic";
-  project.value.dynamicComic = { shots: [...existingShots, ...created.shots] };
+  project.value.dynamicComic = {
+    characterVoiceProfiles: project.value.dynamicComic?.characterVoiceProfiles ?? [],
+    shots: [...existingShots, ...created.shots],
+  };
   editorView.value = "shotBoard";
   selectedShotIds.value = created.shots[0]?.id ? [created.shots[0].id] : [];
   project.value.resolution = { ...DYNAMIC_COMIC_RESOLUTIONS[request.aspectRatio] };
@@ -1430,14 +1592,14 @@ function selectDynamicComicShot(id: string, additive: boolean) {
   if (shot?.visualClipId) selectedClipId.value = shot.visualClipId;
 }
 
-function mutateDynamicComicShots(mutation: (shots: DynamicComicShot[]) => void) {
+function mutateDynamicComicShots(mutation: (shots: DynamicComicShot[]) => void, coalesceKey?: string) {
   const dynamicComic = project.value.dynamicComic;
   if (!dynamicComic) return;
   const linkedTrackIds = [...new Set(dynamicComic.shots.flatMap((shot) => {
     const track = project.value.tracks.find((item) => item.clips.some((clip) => clip.id === shot.visualClipId));
     return track ? [track.id] : [];
   }))];
-  pushHistory({ settings: true, wholeTrackIds: linkedTrackIds });
+  pushHistory({ settings: true, wholeTrackIds: linkedTrackIds, coalesceKey });
   mutation(dynamicComic.shots);
   dynamicComic.shots.forEach((shot, order) => { shot.order = order; });
   synchronizeDynamicComicTimeline(dynamicComic.shots, project.value.tracks.find(isPrimaryTimelineTrack));
@@ -1452,10 +1614,72 @@ function reorderDynamicComicShotSequence(ids: string[]) {
 }
 
 function updateDynamicComicShot(id: string, patch: Partial<DynamicComicShot>) {
+  const invalidatesSpeech = ["dialogue", "characterId", "emotion", "speechSpeed"].some((key) =>
+    Object.prototype.hasOwnProperty.call(patch, key),
+  );
+  if (invalidatesSpeech && !Object.prototype.hasOwnProperty.call(patch, "speechAssetId")) {
+    patch = { ...patch, speechAssetId: undefined };
+    if (previewingSpeechShotId.value === id) stopDynamicComicSpeechPreview();
+  }
+  const patchFields = Object.keys(patch).sort();
+  const coalesceKey = patchFields.every((field) => ["dialogue", "characterId", "emotion", "speechSpeed", "speechAssetId", "transition"].includes(field))
+    ? `shot:${id}:${patchFields.join(",")}`
+    : undefined;
   mutateDynamicComicShots((shots) => {
     const shot = shots.find((item) => item.id === id);
     if (shot) Object.assign(shot, patch);
-  });
+  }, coalesceKey);
+}
+
+function createDynamicComicCharacter(profile: CharacterVoiceProfile) {
+  if (!project.value.dynamicComic) return;
+  pushHistory({ settings: true });
+  project.value.dynamicComic.characterVoiceProfiles.push(profile);
+  markDirty();
+}
+
+function updateDynamicComicCharacter(id: string, patch: Partial<CharacterVoiceProfile>) {
+  const profile = project.value.dynamicComic?.characterVoiceProfiles.find((item) => item.id === id);
+  if (!profile) return;
+  if (patch.name !== undefined) {
+    if (!patch.name.trim()) {
+      shortcutStatusTone.value = "warning";
+      shortcutStatusMessage.value = "角色名称不能为空";
+      return;
+    }
+  }
+  pushHistory({ settings: true, coalesceKey: `character:${id}:${Object.keys(patch).sort().join(",")}` });
+  const invalidatesSpeech = ["voice", "defaultEmotion", "defaultSpeed"].some((key) =>
+    Object.prototype.hasOwnProperty.call(patch, key),
+  );
+  if (invalidatesSpeech) {
+    const affectedShots = project.value.dynamicComic?.shots.filter((shot) => shot.characterId === id) ?? [];
+    if (affectedShots.some((shot) => shot.id === previewingSpeechShotId.value)) stopDynamicComicSpeechPreview();
+    for (const shot of affectedShots) shot.speechAssetId = undefined;
+  }
+  Object.assign(profile, patch);
+  markDirty();
+}
+
+function removeDynamicComicCharacter(id: string) {
+  if (!project.value.dynamicComic) return;
+  pushHistory({ settings: true });
+  const affectedShots = project.value.dynamicComic.shots.filter((shot) => shot.characterId === id);
+  if (affectedShots.some((shot) => shot.id === previewingSpeechShotId.value)) stopDynamicComicSpeechPreview();
+  for (const shot of affectedShots) shot.speechAssetId = undefined;
+  deleteCharacterVoiceProfile(project.value.dynamicComic, id);
+  markDirty();
+}
+
+function auditionDynamicComicShot(id: string) {
+  const dynamicComic = project.value.dynamicComic;
+  const shot = dynamicComic?.shots.find((item) => item.id === id);
+  if (!dynamicComic || !shot?.dialogue.trim()) return;
+  const settings = resolveShotSpeechSettings(dynamicComic, shot);
+  if (!settings) return;
+  stopDynamicComicSpeechPreview();
+  speechPreview.prime();
+  void generateSpeech({ text: shot.dialogue, ...settings }, { shotId: id, audition: true });
 }
 
 function setDynamicComicShotDurations(ids: string[], duration: number) {
@@ -1480,6 +1704,7 @@ function duplicateDynamicComicShotById(id: string) {
 
 function deleteDynamicComicShots(ids: string[]) {
   const deleted = new Set(ids);
+  if (previewingSpeechShotId.value && deleted.has(previewingSpeechShotId.value)) stopDynamicComicSpeechPreview();
   mutateDynamicComicShots((shots) => {
     const clipIds = new Set(shots.filter((shot) => deleted.has(shot.id)).flatMap((shot) => shot.visualClipId ? [shot.visualClipId] : []));
     project.value.dynamicComic!.shots = shots.filter((shot) => !deleted.has(shot.id));
@@ -1491,6 +1716,7 @@ function deleteDynamicComicShots(ids: string[]) {
 }
 
 function openTimelineForDynamicComicShot(shotId?: string) {
+  stopDynamicComicSpeechPreview();
   const shot = project.value.dynamicComic?.shots.find((item) => item.id === shotId);
   editorView.value = "timeline";
   if (!shot?.visualClipId) return;
@@ -2018,6 +2244,7 @@ function pushHistory(spec: ProjectHistoryCaptureSpec) {
     tracks: new Map<string, PendingTrackHistoryCapture>(),
   };
   pendingHistoryCapture = capture;
+  if (spec.coalesceKey) capture.coalesceKey = spec.coalesceKey;
 
   if (spec.settings && !capture.beforeSettings) {
     capture.beforeSettings = projectHistorySettings(project.value);
@@ -2103,7 +2330,11 @@ function markDirty() {
 
   project.value.updatedAt = new Date().toISOString();
   editorVersion.value += 1;
-  saveState.value = "未保存";
+  if (isTauri()) {
+    projectPersistence.markDirty();
+  } else {
+    saveState.value = "未保存";
+  }
   commitPendingHistory();
 }
 
@@ -2172,7 +2403,7 @@ function createProjectHistoryEntry(capture: PendingProjectHistoryCapture): Proje
     estimatedBytes: 0,
     createdAtMs: Date.now(),
   };
-  entry.coalesceKey = historyEntryCoalesceKey(entry);
+  entry.coalesceKey = capture.coalesceKey ?? historyEntryCoalesceKey(entry);
   entry.estimatedBytes = JSON.stringify(entry).length * 2;
   return entry;
 }
@@ -2265,6 +2496,13 @@ function canCoalesceHistoryEntries(previous: ProjectHistoryEntry, next: ProjectH
 }
 
 function mergeCoalescedHistoryEntry(previous: ProjectHistoryEntry, next: ProjectHistoryEntry) {
+  if (previous.afterSettings && next.afterSettings) {
+    previous.afterSettings = cloneHistoryValue(next.afterSettings);
+    previous.createdAtMs = next.createdAtMs;
+    previous.estimatedBytes = JSON.stringify(previous).length * 2;
+    return;
+  }
+
   const previousClipChange = previous.trackChanges[0]?.clipChanges[0];
   const nextClipChange = next.trackChanges[0]?.clipChanges[0];
 
@@ -3687,7 +3925,11 @@ function normalizeEditorAfterHistoryChange() {
     setSingleSelectedAsset(project.value.assets[0]?.id ?? "");
   }
   playhead.value = clamp(playhead.value, 0, project.value.duration);
-  saveState.value = "未保存";
+  if (isTauri()) {
+    projectPersistence.markDirty();
+  } else {
+    saveState.value = "未保存";
+  }
 }
 
 function setTimelineScale(scale: number) {
@@ -3702,25 +3944,44 @@ function zoomOut() {
   setTimelineScale(timelineScale.value - TIMELINE_BUTTON_SCALE_STEP);
 }
 
-async function saveProject() {
-  saveState.value = "保存中";
+function createProjectPersistence(sessionId = props.session.id) {
+  return createEditorProjectPersistence({
+    debounceMs: 1_000,
+    getSnapshot: () => cloneProject(project.value),
+    save: async (snapshot) => {
+      await invoke<EditorProject>("save_edit_project", {
+        sessionId,
+        project: snapshot,
+      });
+    },
+    onStateChange: (state, error) => {
+      saveState.value = state;
 
-  try {
-    project.value = await invoke<typeof project.value>("save_edit_project", {
-      sessionId: props.session.id,
-      project: project.value,
-    });
+      if (state === "保存失败") {
+        shortcutStatusTone.value = "warning";
+        shortcutStatusMessage.value = normalizeExportError(error);
+      }
+    },
+  });
+}
+
+async function flushProjectPersistence() {
+  if (!isTauri()) return true;
+  return projectPersistence.flush();
+}
+
+async function saveProject() {
+  if (!isTauri()) {
+    project.value.updatedAt = new Date().toISOString();
     saveState.value = "已保存";
-  } catch (error) {
-    if (!isTauri()) {
-      project.value.updatedAt = new Date().toISOString();
-      saveState.value = "已保存";
-    } else {
-      saveState.value = "保存失败";
-      shortcutStatusTone.value = "warning";
-      shortcutStatusMessage.value = normalizeExportError(error);
-    }
+    return;
   }
+
+  await flushProjectPersistence();
+}
+
+async function returnToWorkflow() {
+  if (await flushProjectPersistence()) emit("returnToWorkflow");
 }
 
 async function exportProject() {
@@ -3787,12 +4048,10 @@ function openExportDialog() {
   isExportDialogOpen.value = true;
 }
 
-function completeExport() {
+async function completeExport() {
   const result = completedExportResult.value;
 
-  if (!result) {
-    return;
-  }
+  if (!result || !(await flushProjectPersistence())) return;
 
   isExportDialogOpen.value = false;
   completedExportResult.value = null;
@@ -4808,7 +5067,7 @@ function cleanupImportedObjectUrls() {
       :ui="{ root: 'gap-3 py-2', left: 'min-w-[220px] gap-2', center: 'min-w-[220px] flex-1 justify-center max-[900px]:justify-start', right: 'ml-auto shrink-0 gap-1.5' }"
     >
       <template #left>
-        <UiButton color="neutral" variant="soft" square size="sm" title="返回工作流" aria-label="返回工作流" @click="emit('returnToWorkflow')">
+        <UiButton color="neutral" variant="soft" square size="sm" title="返回工作流" aria-label="返回工作流" @click="returnToWorkflow">
           <ArrowLeft :size="15" />
         </UiButton>
         <img :src="lingluxLogo" alt="" class="size-8 rounded-xl object-contain shadow-[0_8px_20px_rgb(37_99_235/0.18)]" />
@@ -4833,7 +5092,7 @@ function cleanupImportedObjectUrls() {
           </UiBadge>
           <UiBadge color="success" variant="subtle" size="sm" class="gap-1 max-[760px]:hidden">
             <span class="size-1.5 rounded-full bg-success" aria-hidden="true"></span>
-            云端同步
+            本地工程
           </UiBadge>
           <UiButton v-if="activeImportTaskIds.length > 0" color="neutral" variant="subtle" size="xs" class="max-w-[240px] truncate" type="button" :title="`${importTaskStatus} · 后台处理，可点击取消`" @click="cancelImport">
             后台：{{ importTaskStatus }}
@@ -5057,12 +5316,24 @@ function cleanupImportedObjectUrls() {
       v-if="project.mode === 'dynamicComic' && editorView === 'shotBoard'"
       :project="project"
       :selected-shot-ids="selectedShotIds"
+      :tts-status="ttsStatus"
+      :tts-busy="isTtsBusy"
+      :tts-progress="ttsProgress"
+      :tts-task-status="ttsTaskStatus"
+      :tts-error="ttsError"
+      :previewing-speech-shot-id="previewingSpeechShotId"
       @select="selectDynamicComicShot"
       @reorder-sequence="reorderDynamicComicShotSequence"
       @duplicate="duplicateDynamicComicShotById"
       @delete="deleteDynamicComicShots"
       @batch-duration="setDynamicComicShotDurations"
       @update-shot="updateDynamicComicShot"
+      @create-character="createDynamicComicCharacter"
+      @update-character="updateDynamicComicCharacter"
+      @delete-character="removeDynamicComicCharacter"
+      @audition-shot="auditionDynamicComicShot"
+      @toggle-speech-preview="toggleDynamicComicSpeechPreview"
+      @setup-tts="setupTts"
       @open-timeline="openTimelineForDynamicComicShot"
     />
     <div v-else class="grid min-h-0 grid-rows-[minmax(280px,1fr)_minmax(340px,44vh)] overflow-hidden max-[900px]:min-h-[980px] max-[900px]:grid-rows-[minmax(680px,auto)_360px]">

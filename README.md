@@ -161,9 +161,9 @@ The source image must already be imported into the current project. A task accep
 
 ## Local AI Voiceover
 
-AI voiceover is currently available only in the desktop app on macOS Apple Silicon. Open the editor's audio panel, install the local model when prompted (about 3.4 GB including runtime and model), then choose the built-in Mandarin male or female voice. Once installed, synthesis runs offline and generated WAV files are managed with the project like imported audio.
+AI voiceover is currently available only in the desktop app on macOS Apple Silicon. Open the editor's audio panel and install the lightweight local model when prompted. Setup needs about 2.7 GB of temporary free space and automatically removes reproducible package and bytecode caches, leaving about 1.5 GB for the runtime, model, and selected voices. Once installed, synthesis runs offline and generated WAV files are managed with the project like imported audio.
 
-The feature uses [CosyVoice-300M-Instruct](https://github.com/QwenAudio/CosyVoice), distributed under Apache License 2.0. Linglux pins the runtime, source, and model revisions instead of following floating releases. Initial setup requires network access; voice cloning and browser synthesis are not enabled.
+The feature uses [Kokoro-82M-v1.1-zh](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh), distributed under Apache License 2.0. Linglux pins the runtime and model revision and downloads only the Mandarin male and female voices used by the editor. Initial setup requires network access; voice cloning and browser synthesis are not enabled.
 
 ## Troubleshooting
 

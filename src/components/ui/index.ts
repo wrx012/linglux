@@ -12,6 +12,13 @@ import {
   PopoverPortal,
   PopoverRoot,
   PopoverTrigger,
+  SelectContent,
+  SelectItem,
+  SelectItemText,
+  SelectPortal,
+  SelectRoot,
+  SelectTrigger,
+  SelectViewport,
   SwitchRoot,
   SwitchThumb,
   TabsList,
@@ -419,24 +426,54 @@ const UiSelect = defineComponent({
   setup(props, { attrs, emit, slots }) {
     return () => {
       const { class: attrClass, ...selectAttrs } = attrs;
-      return h("div", { class: cn("relative min-w-0", props.ui?.root, attrClass as ClassValue) }, [
-        slots.leading
-          ? h("span", { class: cn("pointer-events-none absolute inset-y-0 left-0 z-10 flex items-center pl-3", props.ui?.leading) }, slots.leading())
-          : null,
-        h("select", {
-          ...selectAttrs,
-          class: cn(inputBase, inputSizes[props.size], inputVariants[props.variant], inputFocusColors[props.color], "appearance-none pr-8", slots.leading && "pl-9", props.ui?.base),
-          value: props.modelValue,
-          onChange: (event: Event) => {
-            const selectedValue = (event.target as HTMLSelectElement).value;
-            const selectedItem = props.items.find((item) => String(itemValue(item, props.valueKey)) === selectedValue);
-            emit("update:modelValue", selectedItem === undefined ? selectedValue : itemValue(selectedItem, props.valueKey));
-          },
-        }, props.items.map((item) => h("option", {
-          value: itemValue(item, props.valueKey),
-          disabled: typeof item === "object" && item.disabled,
-        }, itemLabel(item, props.labelKey)))),
-      ]);
+      const emptyValue = "__linglux_empty_select_value__";
+      const rootValue = props.modelValue === "" ? emptyValue : props.modelValue;
+      const selectedItem = props.items.find((item) => String(itemValue(item, props.valueKey)) === String(props.modelValue ?? ""));
+      const selectedLabel = selectedItem === undefined ? "" : itemLabel(selectedItem, props.labelKey);
+      const disabled = Boolean(selectAttrs.disabled);
+      delete selectAttrs.disabled;
+      return h(SelectRoot, {
+        modelValue: rootValue,
+        disabled,
+        "onUpdate:modelValue": (value: unknown) => {
+          const externalValue = value === emptyValue ? "" : value;
+          const selectedItem = props.items.find((item) => String(itemValue(item, props.valueKey)) === String(externalValue));
+          emit("update:modelValue", selectedItem === undefined ? externalValue : itemValue(selectedItem, props.valueKey));
+        },
+      }, {
+        default: () => h("div", { class: cn("relative min-w-0", props.ui?.root, attrClass as ClassValue) }, [
+          slots.leading
+            ? h("span", { class: cn("pointer-events-none absolute inset-y-0 left-0 z-10 flex items-center pl-3", props.ui?.leading) }, slots.leading())
+            : null,
+          h(SelectTrigger, {
+            ...selectAttrs,
+            class: cn(inputBase, inputSizes[props.size], inputVariants[props.variant], inputFocusColors[props.color], "flex w-full items-center justify-between gap-2 pr-3 text-left", slots.leading && "pl-9", props.ui?.base),
+          }, {
+            default: () => [
+              h("span", { class: "min-w-0 flex-1 truncate" }, selectedLabel),
+              h("span", { class: "shrink-0 text-[10px] text-muted", "aria-hidden": "true" }, "▾"),
+            ],
+          }),
+          h(SelectPortal, null, {
+            default: () => h(SelectContent, {
+              position: "popper",
+              sideOffset: 4,
+              class: cn("z-[120] min-w-[var(--reka-select-trigger-width)] overflow-hidden rounded-lg border border-default bg-elevated p-1 text-default shadow-2xl", props.ui?.content),
+            }, {
+              default: () => h(SelectViewport, { class: "max-h-72" }, {
+                default: () => props.items.map((item) => {
+                  const value = itemValue(item, props.valueKey);
+                  return h(SelectItem, {
+                    value: value === "" ? emptyValue : value,
+                    disabled: typeof item === "object" && item.disabled,
+                    class: "relative flex min-h-8 cursor-default select-none items-center rounded-md px-2.5 text-[11px] font-semibold outline-none data-[highlighted]:bg-accented data-[highlighted]:text-highlighted data-[state=checked]:bg-primary/12 data-[state=checked]:text-primary data-[disabled]:pointer-events-none data-[disabled]:opacity-40",
+                  }, { default: () => h(SelectItemText, null, { default: () => itemLabel(item, props.labelKey) }) });
+                }),
+              }),
+            }),
+          }),
+        ]),
+      });
     };
   },
 });

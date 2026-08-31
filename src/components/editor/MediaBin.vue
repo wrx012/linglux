@@ -25,7 +25,14 @@ import {
 } from "@lucide/vue";
 import type { Component } from "vue";
 import type { AudioTrackPreset, MediaAsset, MediaAssetType, TextTemplatePreset, TtsEmotion, TtsStatus, TtsVoice } from "../../types/editor";
-import { TTS_MAX_TEXT_LENGTH, validateTtsText } from "../../lib/tts";
+import {
+  DEFAULT_TTS_EMOTION,
+  DEFAULT_TTS_VOICE,
+  TTS_EMOTION_OPTIONS,
+  TTS_MAX_TEXT_LENGTH,
+  TTS_VOICE_OPTIONS,
+  validateTtsText,
+} from "../../lib/tts";
 
 type AssetFilter = "all" | "audio" | "caption" | "image" | "visual";
 type MediaToolId = "assets" | "audio" | "text" | "stickers" | "effects" | "captions" | "color";
@@ -84,9 +91,11 @@ const assetScroller = ref<HTMLElement | null>(null);
 const isImportDragActive = ref(false);
 const previewingAudioPresetId = ref<string | null>(null);
 const speechText = ref("");
-const speechVoice = ref<TtsVoice>("zhFemale");
-const speechEmotion = ref<TtsEmotion>("natural");
+const speechVoice = ref<TtsVoice>(DEFAULT_TTS_VOICE);
+const speechEmotion = ref<TtsEmotion>(DEFAULT_TTS_EMOTION);
 const speechSpeed = ref(1);
+const speechVoiceOptions = TTS_VOICE_OPTIONS;
+const speechEmotionOptions = TTS_EMOTION_OPTIONS;
 const localSpeechError = computed(() => validateTtsText(speechText.value));
 const speechCharacterCount = computed(() => [...speechText.value].length);
 const canGenerateSpeech = computed(() => props.ttsStatus?.state === "ready" && !props.ttsBusy && !localSpeechError.value);
@@ -1073,41 +1082,37 @@ function addTextTemplateToTimeline(preset: TextTemplatePreset) {
         <article class="grid gap-2 rounded-xl border border-[#245449] bg-[#10231f] p-2.5">
           <header class="flex items-center justify-between gap-2">
             <span class="inline-flex items-center gap-1.5 text-[12px] font-black text-[#d8fff4]"><Mic2 :size="14" />AI 配音</span>
-            <span class="text-[9px] font-bold text-[#64cdb0]">CosyVoice · 本地</span>
+            <span class="text-[9px] font-bold text-[#64cdb0]">Kokoro 82M · 本地</span>
           </header>
 
           <template v-if="!ttsStatus?.supported">
             <p class="text-[10px] leading-4 text-[#94a3b8]">{{ ttsStatus?.error || "仅桌面版 macOS Apple Silicon 支持。" }}</p>
           </template>
           <template v-else-if="ttsStatus.state !== 'ready'">
-            <p class="text-[10px] leading-4 text-[#a7b8b3]">首次使用需下载约 {{ (ttsStatus.requiredBytes / 1_000_000_000).toFixed(1) }} GB，安装后可离线生成。</p>
+            <p class="text-[10px] leading-4 text-[#a7b8b3]">安装峰值需约 {{ (ttsStatus.requiredBytes / 1_000_000_000).toFixed(1) }} GB 可用空间，完成并清理缓存后约占 1.5 GB。<template v-if="ttsStatus.legacyBytes"> 将同时清理约 {{ (ttsStatus.legacyBytes / 1_000_000_000).toFixed(1) }} GB 旧版语音文件。</template></p>
             <UiProgress v-if="ttsBusy" :model-value="ttsProgress || 0" size="xs" color="secondary" />
             <p v-if="ttsTaskStatus || ttsError" class="text-[10px]" :class="ttsError ? 'text-[#fca5a5]' : 'text-[#8fd8c5]'">{{ ttsError || ttsTaskStatus }}</p>
             <div class="flex gap-2">
-              <UiButton size="xs" color="secondary" type="button" :loading="ttsBusy" :disabled="ttsBusy" @click="emit('setupTts')">安装本地模型</UiButton>
+              <UiButton size="xs" color="secondary" type="button" :loading="ttsBusy" :disabled="ttsBusy" @click="emit('setupTts')">{{ ttsStatus.legacyBytes ? '清理旧版并安装' : '安装本地模型' }}</UiButton>
               <UiButton v-if="ttsBusy" size="xs" color="neutral" variant="soft" type="button" @click="emit('cancelTts')">取消</UiButton>
             </div>
           </template>
           <template v-else>
             <label class="grid gap-1 text-[10px] font-bold text-[#a7b8b3]">
               台词
-              <textarea v-model="speechText" class="min-h-[72px] resize-y rounded-lg border border-[#2d5148] bg-[#091411] px-2 py-1.5 text-[11px] leading-4 text-[#e5f5f0] outline-none focus:border-[#2dd4a3]" :maxlength="TTS_MAX_TEXT_LENGTH" placeholder="例如：今天天气很好" />
+              <UiTextarea v-model="speechText" class="min-h-[72px] resize-y rounded-lg border border-[#2d5148] bg-[#091411] px-2 py-1.5 text-[11px] leading-4 text-[#e5f5f0] outline-none focus:border-[#2dd4a3]" :maxlength="TTS_MAX_TEXT_LENGTH" placeholder="例如：今天天气很好" />
               <span class="text-right font-mono text-[9px]" :class="speechCharacterCount >= TTS_MAX_TEXT_LENGTH ? 'text-[#fca5a5]' : 'text-[#708d85]'">{{ speechCharacterCount }}/{{ TTS_MAX_TEXT_LENGTH }}</span>
             </label>
             <div class="grid grid-cols-2 gap-2">
               <label class="grid gap-1 text-[10px] font-bold text-[#a7b8b3]">音色
-                <select v-model="speechVoice" class="h-7 rounded border border-[#2d5148] bg-[#091411] px-1.5 text-[10px] text-[#e5f5f0]">
-                  <option value="zhFemale">中文女声</option><option value="zhMale">中文男声</option>
-                </select>
+                <UiSelect v-model="speechVoice" :items="speechVoiceOptions" size="sm" />
               </label>
               <label class="grid gap-1 text-[10px] font-bold text-[#a7b8b3]">情绪
-                <select v-model="speechEmotion" class="h-7 rounded border border-[#2d5148] bg-[#091411] px-1.5 text-[10px] text-[#e5f5f0]">
-                  <option value="natural">自然</option><option value="gentle">温柔</option><option value="cheerful">愉快</option><option value="serious">严肃</option>
-                </select>
+                <UiSelect v-model="speechEmotion" :items="speechEmotionOptions" size="sm" />
               </label>
             </div>
             <label class="grid gap-1 text-[10px] font-bold text-[#a7b8b3]">语速 {{ speechSpeed.toFixed(2) }}×
-              <input v-model.number="speechSpeed" type="range" min="0.75" max="1.5" step="0.05" class="w-full" />
+              <UiSlider v-model="speechSpeed" :min="0.75" :max="1.5" :step="0.05" />
             </label>
             <UiProgress v-if="ttsBusy" :model-value="ttsProgress || 0" size="xs" color="secondary" />
             <p v-if="ttsError || localSpeechError || ttsTaskStatus" class="text-[10px]" :class="ttsError || localSpeechError ? 'text-[#fca5a5]' : 'text-[#8fd8c5]'">{{ ttsError || localSpeechError || ttsTaskStatus }}</p>

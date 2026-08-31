@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSeededEditSession, createTimelineClip } from "./editorProject";
+import { createDefaultDynamicComicCameraMotion, createSeededEditSession, createTimelineClip } from "./editorProject";
 import {
   AgentPlanValidationError,
   createAgentProjectSnapshot,
@@ -7,6 +7,7 @@ import {
 } from "./editorAgent";
 import type { AgentEditPlan } from "../types/agent";
 import type { EditorProject, MediaAsset } from "../types/editor";
+import { createSpeechAssetName } from "./tts";
 
 function createProject(duration = 240): EditorProject {
   const project = createSeededEditSession().project;
@@ -193,6 +194,20 @@ describe("editor Agent plan executor", () => {
     const project = createProject();
     project.assets[0].filePath = "/private/secret/x.mp4";
     project.assets[0].waveformPeaks = [0.2, 0.8];
+    project.mode = "dynamicComic";
+    project.assets.push({
+      id: "speech-1",
+      type: "audio",
+      name: createSpeechAssetName(project.assets.map((asset) => asset.name)),
+      url: "asset://speech-1.wav",
+      filePath: "/private/secret/speech-1.wav",
+      duration: 2,
+      createdAt: "2026-08-31T00:00:00.000Z",
+    });
+    project.dynamicComic = {
+      characterVoiceProfiles: [{ id: "hero", name: "主角", color: "#2dd4bf", voice: "zhMale", defaultEmotion: "serious", defaultSpeed: 1 }],
+      shots: [{ id: "shot-1", order: 0, duration: 4, focus: { x: 0.5, y: 0.5 }, characterId: "hero", speechAssetId: "speech-1", dialogue: "你好", pauseBefore: 0, pauseAfter: 0, cameraMotion: createDefaultDynamicComicCameraMotion(), soundEffectAssetIds: [] }],
+    };
     addFullClip(project);
     const snapshot = createAgentProjectSnapshot({
       project,
@@ -205,6 +220,9 @@ describe("editor Agent plan executor", () => {
 
     expect(serialized).not.toContain("/private/secret");
     expect(serialized).not.toContain("waveform");
+    expect(serialized).not.toContain("modelPath");
+    expect(serialized).not.toContain("你好");
+    expect(snapshot.characterVoiceProfiles[0]).toEqual(expect.objectContaining({ id: "hero", voice: "zhMale" }));
     expect(snapshot.tracks[1].clips[0].sourceOutMs).toBe(240_000);
   });
 });

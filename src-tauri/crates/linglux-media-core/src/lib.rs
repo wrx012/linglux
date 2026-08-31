@@ -18,7 +18,9 @@ pub use ffmpeg::{discover_ffmpeg_binary, run_ffmpeg_process};
 pub use import::{import_media_paths, ImportedMediaFile};
 pub use media::{generate_media_derivatives, MediaDerivatives, MediaKind, MediaMetadata};
 pub use project_store::{ProjectDocument, ProjectSaveResult, ProjectStore, PROJECT_SCHEMA_VERSION};
-pub use storyboard::{storyboard_to_video, StoryboardFrameRect, StoryboardToVideoRequest, StoryboardToVideoResult};
+pub use storyboard::{
+    storyboard_to_video, StoryboardFrameRect, StoryboardToVideoRequest, StoryboardToVideoResult,
+};
 pub use task::{TaskEvent, TaskHandle, TaskKind, TaskManager, TaskSnapshot, TaskState};
 pub use tts::{SpeechSynthesisRequest, TtsEmotion, TtsManager, TtsStatus, TtsVoice};
 

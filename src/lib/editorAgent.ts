@@ -75,6 +75,21 @@ export function createAgentProjectSnapshot(options: {
         };
       }),
     })),
+    characterVoiceProfiles: (project.dynamicComic?.characterVoiceProfiles ?? []).map((profile) => ({
+      id: profile.id,
+      name: profile.name,
+      color: profile.color,
+      voice: profile.voice,
+      defaultEmotion: profile.defaultEmotion,
+      defaultSpeed: profile.defaultSpeed,
+    })),
+    dynamicComicShots: (project.dynamicComic?.shots ?? []).map((shot) => ({
+      id: shot.id,
+      order: shot.order,
+      characterId: shot.characterId,
+      emotion: shot.emotion,
+      speechSpeed: shot.speechSpeed,
+    })),
   };
 }
 

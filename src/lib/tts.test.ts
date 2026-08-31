@@ -8,11 +8,12 @@ describe("local TTS helpers", () => {
     expect(validateTtsText("今天天气很好")).toBe("");
   });
 
-  it("creates a bounded unique asset name", () => {
-    const text = "这是一段超过二十个字符的中文配音台词用于验证名称截断行为";
-    const first = createSpeechAssetName(text, []);
-    expect([...first.replace(/\.wav$/, "")]).toHaveLength(20);
-    expect(createSpeechAssetName(text, [first])).toMatch(/ 2\.wav$/);
+  it("creates a unique asset name without copying private dialogue", () => {
+    const privateDialogue = "这句私密台词不能进入素材名或 Agent 快照";
+    const first = createSpeechAssetName([]);
+    expect(first).toBe("AI 配音.wav");
+    expect(first).not.toContain(privateDialogue);
+    expect(createSpeechAssetName([first])).toBe("AI 配音 2.wav");
   });
 
   it("keeps every public emotion mapped", () => {

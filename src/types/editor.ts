@@ -161,8 +161,10 @@ export interface DynamicComicShot {
     y: number;
   };
   characterId?: string;
+  speechAssetId?: string;
   dialogue: string;
   emotion?: string;
+  speechSpeed?: number;
   pauseBefore: number;
   pauseAfter: number;
   cameraMotion: DynamicComicCameraMotion;
@@ -170,7 +172,17 @@ export interface DynamicComicShot {
   soundEffectAssetIds: string[];
 }
 
+export interface CharacterVoiceProfile {
+  id: string;
+  name: string;
+  color: string;
+  voice: TtsVoice;
+  defaultEmotion: TtsEmotion;
+  defaultSpeed: number;
+}
+
 export interface DynamicComicProject {
+  characterVoiceProfiles: CharacterVoiceProfile[];
   shots: DynamicComicShot[];
 }
 
@@ -278,6 +290,7 @@ export interface TtsStatus {
   runtimeInstalled: boolean;
   modelInstalled: boolean;
   requiredBytes: number;
+  legacyBytes?: number;
   voices: Array<{ id: TtsVoice; label: string }>;
   error?: string;
 }
