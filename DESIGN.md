@@ -33,7 +33,7 @@ Linglux 面向希望在本地桌面环境中完成专业视频创作的用户：
 - 导出已经从纯模拟推进到 FFmpeg 流程，能够输出文件和旁路 manifest，并把完成结果回写到工作流。
 - 剪辑器已经接入真实的对话式 Agent：模型通过受控 Tool Calls 读取净化后的工程元数据、返回结构化剪辑计划，用户确认后才由本地时间线事务执行。
 - 托管的分镜拼图可在前端识别网格并校对裁切框，再由 Rust/FFmpeg 按行优先顺序生成可取消的 H.264 MP4，结果回到工程素材库。
-- macOS Apple Silicon 上可按需安装固定版本的 CosyVoice 运行时和模型，在本地合成中文配音并导入为托管 WAV 素材。
+- macOS Apple Silicon 上可按需安装固定版本的轻量 Kokoro 82M 中文运行时和模型，在本地合成中文配音并导入为托管 WAV 素材。
 
 仍属于原型阶段的能力：
 
@@ -124,7 +124,7 @@ flowchart TD
   Tauri --> Import["Import pipeline\nclone, hard link, copy"]
   Tauri --> Derivatives["Media derivatives\nthumbnail, waveform, proxy"]
   Tauri --> Storyboard["Storyboard encoder\ngrid crops to H.264 MP4"]
-  Tauri --> TTS["Local TTS\npinned CosyVoice to managed WAV"]
+  Tauri --> TTS["Local TTS\npinned Kokoro 82M to managed WAV"]
   Tauri --> Export["FFmpeg export\nsegments, captions, audio mix"]
   Tauri --> Provider["Agent provider runtime\nDeepSeek / OpenAI-compatible"]
 
@@ -481,7 +481,7 @@ Design rules:
 
 ### Local AI Voiceover
 
-The editor audio panel can synthesize Mandarin voiceover locally on macOS Apple Silicon. The first release uses the pinned Apache-2.0 CosyVoice-300M-Instruct model with its built-in Chinese male and female speakers. Runtime and model files are installed on demand under `media-core/tts/`; generated WAV files enter the normal managed-media, waveform, timeline, save, preview, and export paths.
+The editor audio panel can synthesize Mandarin voiceover locally on macOS Apple Silicon. The first release uses the pinned Apache-2.0 Kokoro-82M-v1.1-zh model and downloads only the Chinese male and female voices exposed by the editor. Runtime and model files are installed on demand under `media-core/tts/`; generated WAV files enter the normal managed-media, waveform, timeline, save, preview, and export paths.
 
 Setup and synthesis use the existing observable task model and a dedicated single-worker speech queue so the model is never loaded concurrently. Vue sends only typed text/voice/emotion/speed intent. Rust owns validated paths, downloads, checksums, the Python worker, cancellation, temporary-file cleanup, and project import. Voice cloning and browser synthesis are intentionally out of scope.
 

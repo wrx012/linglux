@@ -127,6 +127,27 @@ pub struct AgentProjectTrack {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentCharacterVoiceProfile {
+    id: String,
+    name: String,
+    color: String,
+    voice: String,
+    default_emotion: String,
+    default_speed: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentDynamicComicShot {
+    id: String,
+    order: u64,
+    character_id: Option<String>,
+    emotion: Option<String>,
+    speech_speed: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentProjectSnapshot {
     project_id: String,
     project_name: String,
@@ -138,6 +159,10 @@ pub struct AgentProjectSnapshot {
     main_track_magnet_enabled: bool,
     assets: Vec<AgentProjectAsset>,
     tracks: Vec<AgentProjectTrack>,
+    #[serde(default)]
+    character_voice_profiles: Vec<AgentCharacterVoiceProfile>,
+    #[serde(default)]
+    dynamic_comic_shots: Vec<AgentDynamicComicShot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1090,14 +1115,20 @@ fn validate_source_range(
 }
 
 fn agent_system_prompt(project: &AgentProjectSnapshot) -> String {
+    let dynamic_comic_metadata = serde_json::to_string(&json!({
+        "characterVoiceProfiles": project.character_voice_profiles,
+        "shots": project.dynamic_comic_shots,
+    }))
+    .unwrap_or_else(|_| "{}".to_string());
     format!(
         "你是 Linglux 剪辑 Agent。你只能读取工程元数据并提出结构化剪辑计划，不能执行计划、不能操作鼠标、不能运行命令、不能访问文件。\n\
          当前工程 ID：{}，名称：{}，编辑版本：{}。\n\
          时间一律输出非负整数毫秒。用户点名素材时先调用 list_assets；涉及时间线时调用 inspect_timeline；“这个片段”等指代调用 inspect_selection。\n\
          只有 ID 唯一、时间明确且范围有效时才调用 propose_edit_plan。素材未上时间线时可用 addAssetRange；用户未指定轨道时选择主视频轨，未指定时间则省略 timelineStartMs，由本地执行器在空时间线放到 0、否则追加到轨道末尾。\n\
          如果同名素材、同一素材有多个片段、时间表达可能有两种解释、轨道锁定或信息不足，直接用简短中文提出一个澄清问题，不要调用 propose_edit_plan。\n\
-         用户说“1:03 前面的不要，3:02 后面的不要”表示保留源区间 63000–182000ms；“结尾 3:02 不要”本身含糊，必须追问。",
-        project.project_id, project.project_name, project.editor_version
+         用户说“1:03 前面的不要，3:02 后面的不要”表示保留源区间 63000–182000ms；“结尾 3:02 不要”本身含糊，必须追问。\n\
+         动态漫角色与镜头安全元数据：{}",
+        project.project_id, project.project_name, project.editor_version, dynamic_comic_metadata
     )
 }
 
@@ -1470,6 +1501,8 @@ mod tests {
                 locked: false,
                 clips: vec![],
             }],
+            character_voice_profiles: vec![],
+            dynamic_comic_shots: vec![],
         }
     }
 

@@ -61,7 +61,7 @@ The current implementation is still a prototype in the image/video-provider sens
 - `src-tauri/crates/linglux-media-core/src/media.rs`: metadata probing, thumbnail/waveform/proxy generation, warnings, and cache pruning.
 - `src-tauri/crates/linglux-media-core/src/ffmpeg.rs`: FFmpeg/FFprobe discovery and process execution.
 - `src-tauri/crates/linglux-media-core/src/storyboard.rs`: validated storyboard crops and cancellable H.264 frame-sequence encoding.
-- `src-tauri/crates/linglux-media-core/src/tts.rs`: pinned local CosyVoice setup, synthesis lifecycle, and managed WAV import.
+- `src-tauri/crates/linglux-media-core/src/tts.rs`: pinned lightweight Kokoro 82M setup, synthesis lifecycle, cache cleanup, and managed WAV import.
 - `src-tauri/src/agent.rs`: provider settings, credential-vault integration, bounded tool-call loop, conversation sidecar, and Agent task cancellation.
 - `src-tauri/tauri.conf.json`: Tauri dev/build URLs, window settings, asset protocol, security, and bundle configuration.
 - `src-tauri/capabilities/default.json`: current Tauri permissions.
@@ -190,7 +190,7 @@ Exports run on a single export worker. Import and derivative work share media wo
 
 Storyboard encoding uses the media worker pool and accepts only managed source images inside the current project. Preserve crop bounds validation, the 240-frame/120-FPS limits, row-major ordering, temporary-file cleanup, and FFmpeg cancellation behavior.
 
-TTS setup and synthesis share a dedicated single worker. The first implementation is macOS Apple Silicon-only, installs pinned CosyVoice/runtime revisions under `media-core/tts/`, and imports only completed WAV output through the normal managed-media path. Do not enable voice cloning or accept arbitrary runtime/model paths without an explicit security and product review.
+TTS setup and synthesis share a dedicated single worker. The first implementation is macOS Apple Silicon-only, installs a pinned Kokoro-82M-v1.1-zh model and runtime under `media-core/tts/`, downloads only the exposed Mandarin voices, cleans reproducible installation caches, and imports only completed WAV output through the normal managed-media path. A user-triggered lightweight-model setup may remove detected legacy CosyVoice runtime/model files after the new model is ready. Do not enable voice cloning or accept arbitrary runtime/model paths without an explicit security and product review.
 
 Derivative generation should prefer cached artifacts where valid and should report warnings for unavailable FFmpeg, skipped streams, unsupported media, or fallback behavior. Do not make cache misses or derivative failures corrupt the project manifest.
 

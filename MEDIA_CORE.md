@@ -40,8 +40,7 @@ media-core/
   tasks/
   tts/
     runtime/
-    cosyvoice-source/
-    cosyvoice-300m-instruct/
+    kokoro-82m-zh/
     downloads/
     tmp/
 ```
@@ -50,7 +49,7 @@ media-core/
 
 Agent conversation history is a separate bounded sidecar in the project package. It uses the same next-file and backup replacement discipline, but it is intentionally excluded from `EditorProject` and export manifests. The file stores visible user/assistant messages, visible structured plan previews, and plan states only; provider reasoning, API keys, local paths, and raw provider responses are not persisted.
 
-The TTS directory is global to the local Linglux installation rather than a project. Its install manifest pins the CosyVoice source and model revisions. Partial runtime downloads are checksum-verified before publication; incomplete downloads and synthesis output stay out of project packages. Completed WAV output is imported through the same managed-media path as user audio.
+The TTS directory is global to the local Linglux installation rather than a project. Its install manifest pins the Kokoro 82M Chinese model revision, and setup downloads only the voices exposed by Linglux. Partial runtime downloads are checksum-verified before publication; incomplete downloads and synthesis output stay out of project packages. Completed WAV output is imported through the same managed-media path as user audio.
 
 Derivative cache keys use the imported media fingerprint and derivative parameters. The shared cache is pruned to a 2 GiB budget after derivative jobs.
 

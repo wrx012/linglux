@@ -1,5 +1,6 @@
 import type {
   AudioBeatMarker,
+  CharacterVoiceProfile,
   ClipEffect,
   ClipTransform,
   DynamicComicCameraMotion,
@@ -15,6 +16,7 @@ import type {
   TimelineTrack,
   TimelineTrackType,
 } from "../types/editor";
+import { DEFAULT_TTS_EMOTION, DEFAULT_TTS_VOICE, isTtsEmotion, isTtsVoice } from "./tts";
 
 export const TIMELINE_BASE_PIXELS_PER_SECOND = 12;
 export const TIMELINE_MIN_SCALE = 0.12;
@@ -95,7 +97,7 @@ export function createSeededEditSession(seed: EditorSessionSeed = {}): EditSessi
     name: sourceNodeId ? `剪辑会话 · ${sourceNodeId}` : "Linglux 剪辑工程",
     sourceNodeId,
     mode: seed.mode === "dynamicComic" ? "dynamicComic" : "timeline",
-    dynamicComic: seed.mode === "dynamicComic" ? { shots: [] } : undefined,
+    dynamicComic: seed.mode === "dynamicComic" ? { characterVoiceProfiles: [], shots: [] } : undefined,
     assets: [],
     tracks,
     mainTrackMagnetEnabled: true,
@@ -172,11 +174,30 @@ export function normalizeEditorProject(project: EditorProject): EditorProject {
 function normalizeDynamicComicProject(dynamicComic?: Partial<DynamicComicProject>): DynamicComicProject {
   const shots = Array.isArray(dynamicComic?.shots) ? dynamicComic.shots : [];
   const usedIds = new Set<string>();
+  const characterVoiceProfiles = normalizeCharacterVoiceProfiles(dynamicComic?.characterVoiceProfiles);
+  const validProfileIds = new Set(characterVoiceProfiles.map((profile) => profile.id));
+  const normalizedShots = shots.map((shot) => normalizeDynamicComicShot(shot, usedIds));
+
+  for (const shot of normalizedShots) {
+    if (!shot.characterId || validProfileIds.has(shot.characterId)) continue;
+    characterVoiceProfiles.push(createLegacyCharacterVoiceProfile(shot.characterId));
+    validProfileIds.add(shot.characterId);
+  }
 
   return {
-    shots: shots
-      .map((shot) => normalizeDynamicComicShot(shot, usedIds))
-      .sort((left, right) => left.order - right.order),
+    characterVoiceProfiles,
+    shots: normalizedShots.sort((left, right) => left.order - right.order),
+  };
+}
+
+function createLegacyCharacterVoiceProfile(characterId: string): CharacterVoiceProfile {
+  return {
+    id: characterId,
+    name: characterId,
+    color: "#2dd4bf",
+    voice: DEFAULT_TTS_VOICE,
+    defaultEmotion: DEFAULT_TTS_EMOTION,
+    defaultSpeed: 1,
   };
 }
 
@@ -197,8 +218,12 @@ function normalizeDynamicComicShot(shot: Partial<DynamicComicShot>, usedIds: Set
       y: finiteBetween(shot.focus?.y, 0, 1, 0.5),
     },
     characterId: nonEmptyString(shot.characterId),
+    speechAssetId: nonEmptyString(shot.speechAssetId),
     dialogue: typeof shot.dialogue === "string" ? shot.dialogue : "",
     emotion: nonEmptyString(shot.emotion),
+    speechSpeed: typeof shot.speechSpeed === "number" && Number.isFinite(shot.speechSpeed)
+      ? finiteBetween(shot.speechSpeed, 0.75, 1.5, 1)
+      : undefined,
     pauseBefore: finiteAtLeast(shot.pauseBefore, 0),
     pauseAfter: finiteAtLeast(shot.pauseAfter, 0),
     cameraMotion: normalizeDynamicComicCameraMotion(shot.cameraMotion),
@@ -207,6 +232,25 @@ function normalizeDynamicComicShot(shot: Partial<DynamicComicShot>, usedIds: Set
       ? shot.soundEffectAssetIds.map(nonEmptyString).filter((id): id is string => Boolean(id))
       : [],
   };
+}
+
+function normalizeCharacterVoiceProfiles(profiles: CharacterVoiceProfile[] | undefined): CharacterVoiceProfile[] {
+  if (!Array.isArray(profiles)) return [];
+  const usedIds = new Set<string>();
+  return profiles.flatMap((profile) => {
+    const id = nonEmptyString(profile?.id);
+    const name = nonEmptyString(profile?.name);
+    if (!id || !name || usedIds.has(id)) return [];
+    usedIds.add(id);
+    return [{
+      id,
+      name,
+      color: /^#[0-9a-f]{6}$/i.test(profile.color ?? "") ? profile.color : "#2dd4bf",
+      voice: isTtsVoice(profile.voice) ? profile.voice : DEFAULT_TTS_VOICE,
+      defaultEmotion: isTtsEmotion(profile.defaultEmotion) ? profile.defaultEmotion : DEFAULT_TTS_EMOTION,
+      defaultSpeed: finiteBetween(profile.defaultSpeed, 0.75, 1.5, 1),
+    } as CharacterVoiceProfile];
+  });
 }
 
 function createUniqueDynamicComicShotId(usedIds: Set<string>) {

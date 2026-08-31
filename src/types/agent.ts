@@ -119,6 +119,21 @@ export interface AgentProjectSnapshot {
   mainTrackMagnetEnabled: boolean;
   assets: AgentProjectAsset[];
   tracks: AgentProjectTrack[];
+  characterVoiceProfiles: Array<{
+    id: string;
+    name: string;
+    color: string;
+    voice: string;
+    defaultEmotion: string;
+    defaultSpeed: number;
+  }>;
+  dynamicComicShots: Array<{
+    id: string;
+    order: number;
+    characterId?: string;
+    emotion?: string;
+    speechSpeed?: number;
+  }>;
 }
 
 export interface AgentTurnRequest {

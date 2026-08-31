@@ -104,9 +104,12 @@ describe("local UI migration parity", () => {
     const input = host.querySelector("input") as HTMLInputElement;
     input.value = "after";
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    const select = host.querySelector("select") as HTMLSelectElement;
-    select.value = "digital";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    const select = host.querySelector<HTMLElement>("[role=combobox]")!;
+    select.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 1 }));
+    await settle();
+    const digitalOption = [...document.body.querySelectorAll<HTMLElement>("[role=option]")].find((option) => option.textContent === "digital");
+    expect(digitalOption).toBeDefined();
+    digitalOption?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, pointerId: 1 }));
     const motionTab = [...host.querySelectorAll<HTMLElement>("[role=tab]")].find((tab) => tab.textContent === "motion");
     expect(motionTab).toBeDefined();
     motionTab?.dispatchEvent(new MouseEvent("mousedown", { button: 0, ctrlKey: false, bubbles: true }));
@@ -115,6 +118,28 @@ describe("local UI migration parity", () => {
     expect(inputValue.value).toBe("after");
     expect(selectValue.value).toBe("digital");
     expect(tabValue.value).toBe("motion");
+  });
+
+  it("refreshes a select label when its option and model value are added together", async () => {
+    const selectValue = ref("");
+    const selectItems = ref<Array<{ label: string; value: string }>>([
+      { label: "未指定角色", value: "" },
+    ]);
+    const host = mount(defineComponent({
+      setup() {
+        return () => h(UiSelect, {
+          "aria-label": "角色",
+          modelValue: selectValue.value,
+          items: selectItems.value,
+        });
+      },
+    }));
+
+    selectItems.value = [...selectItems.value, { label: "小猫", value: "character-cat" }];
+    selectValue.value = "character-cat";
+    await settle();
+
+    expect(host.querySelector('[aria-label="角色"]')?.textContent).toContain("小猫");
   });
 
   it("renders modal content through a portal and restores focus after Escape", async () => {

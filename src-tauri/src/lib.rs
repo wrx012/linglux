@@ -243,10 +243,14 @@ struct DynamicComicShot {
     focus: DynamicComicFocus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     character_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    speech_asset_id: Option<String>,
     #[serde(default)]
     dialogue: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     emotion: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    speech_speed: Option<f64>,
     #[serde(default)]
     pause_before: f64,
     #[serde(default)]
@@ -259,9 +263,22 @@ struct DynamicComicShot {
     sound_effect_asset_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CharacterVoiceProfile {
+    id: String,
+    name: String,
+    color: String,
+    voice: String,
+    default_emotion: String,
+    default_speed: f64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DynamicComicProject {
+    #[serde(default)]
+    character_voice_profiles: Vec<CharacterVoiceProfile>,
     #[serde(default)]
     shots: Vec<DynamicComicShot>,
 }
@@ -401,6 +418,31 @@ fn normalize_editor_project(project: &mut EditorProject) {
 }
 
 fn normalize_dynamic_comic_project(project: &mut DynamicComicProject) {
+    let mut profile_ids = HashSet::new();
+    project.character_voice_profiles.retain_mut(|profile| {
+        profile.id = profile.id.trim().to_string();
+        profile.name = profile.name.trim().to_string();
+        if profile.id.is_empty()
+            || profile.name.is_empty()
+            || !profile_ids.insert(profile.id.clone())
+        {
+            return false;
+        }
+        if !matches!(profile.voice.as_str(), "zhMale" | "zhFemale") {
+            profile.voice = "zhFemale".to_string();
+        }
+        if !matches!(
+            profile.default_emotion.as_str(),
+            "natural" | "gentle" | "cheerful" | "serious"
+        ) {
+            profile.default_emotion = "natural".to_string();
+        }
+        if !is_hex_color(&profile.color) {
+            profile.color = "#2dd4bf".to_string();
+        }
+        profile.default_speed = finite_between(profile.default_speed, 0.75, 1.5, 1.0);
+        true
+    });
     let mut used_ids = HashSet::new();
 
     for (index, shot) in project.shots.iter_mut().enumerate() {
@@ -421,7 +463,11 @@ fn normalize_dynamic_comic_project(project: &mut DynamicComicProject) {
         shot.pause_before = finite_at_least(shot.pause_before, 0.0, 0.0);
         shot.pause_after = finite_at_least(shot.pause_after, 0.0, 0.0);
         shot.character_id = normalize_optional_string(shot.character_id.take());
+        shot.speech_asset_id = normalize_optional_string(shot.speech_asset_id.take());
         shot.emotion = normalize_optional_string(shot.emotion.take());
+        shot.speech_speed = shot
+            .speech_speed
+            .map(|speed| finite_between(speed, 0.75, 1.5, 1.0));
         shot.transition = normalize_optional_string(shot.transition.take());
         normalize_dynamic_comic_frame(&mut shot.camera_motion.start);
         normalize_dynamic_comic_frame(&mut shot.camera_motion.end);
@@ -435,9 +481,35 @@ fn normalize_dynamic_comic_project(project: &mut DynamicComicProject) {
             .collect();
     }
 
+    for character_id in project
+        .shots
+        .iter()
+        .filter_map(|shot| shot.character_id.as_ref())
+    {
+        if !profile_ids.insert(character_id.clone()) {
+            continue;
+        }
+        project
+            .character_voice_profiles
+            .push(CharacterVoiceProfile {
+                id: character_id.clone(),
+                name: character_id.clone(),
+                color: "#2dd4bf".to_string(),
+                voice: "zhFemale".to_string(),
+                default_emotion: "natural".to_string(),
+                default_speed: 1.0,
+            });
+    }
+
     project
         .shots
         .sort_by(|left, right| left.order.total_cmp(&right.order));
+}
+
+fn is_hex_color(value: &str) -> bool {
+    value.len() == 7
+        && value.starts_with('#')
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn normalize_dynamic_comic_frame(frame: &mut DynamicComicFrame) {
@@ -1686,12 +1758,12 @@ fn create_video_plan(prompt: String) -> String {
 
 #[tauri::command]
 fn create_edit_session(core: State<'_, MediaCore>, seed: EditorSessionSeed) -> EditSession {
+    create_edit_session_with_core(core.inner(), seed)
+}
+
+fn create_edit_session_with_core(core: &MediaCore, seed: EditorSessionSeed) -> EditSession {
     let now = now_stamp();
-    let project_id = seed
-        .source_node_id
-        .as_deref()
-        .map(|source_node_id| format!("project-source-{}", sanitize_file_name(source_node_id)))
-        .unwrap_or_else(|| format!("project-{}", now.replace("unix-", "")));
+    let project_id = edit_project_id(seed.source_node_id.as_deref(), &now);
     let restored = core.projects().load(&project_id);
     let saved_at = restored
         .as_ref()
@@ -1712,6 +1784,12 @@ fn create_edit_session(core: State<'_, MediaCore>, seed: EditorSessionSeed) -> E
         saved_at: saved_at.or(Some(now)),
         is_dirty: false,
     }
+}
+
+fn edit_project_id(source_node_id: Option<&str>, now: &str) -> String {
+    source_node_id
+        .map(|source_node_id| format!("project-source-{}", sanitize_file_name(source_node_id)))
+        .unwrap_or_else(|| format!("project-{}", now.replace("unix-", "")))
 }
 
 #[tauri::command]
@@ -2068,6 +2146,14 @@ mod tests {
         let mut value = legacy_project_json();
         value["mode"] = serde_json::json!("dynamicComic");
         value["dynamicComic"] = serde_json::json!({
+            "characterVoiceProfiles": [{
+                "id": "character-lin-xia",
+                "name": "林夏",
+                "color": "#2dd4bf",
+                "voice": "zhFemale",
+                "defaultEmotion": "natural",
+                "defaultSpeed": 1.0
+            }],
             "shots": [{
                 "id": "shot-hero-arrives",
                 "order": 0,
@@ -2076,8 +2162,10 @@ mod tests {
                 "duration": 4.2,
                 "focus": { "x": 0.62, "y": 0.31 },
                 "characterId": "character-lin-xia",
+                "speechAssetId": "asset-speech-shot-04",
                 "dialogue": "你为什么现在才回来？",
                 "emotion": "serious",
+                "speechSpeed": 1.2,
                 "pauseBefore": 0.25,
                 "pauseAfter": 0.4,
                 "cameraMotion": {
@@ -2128,8 +2216,10 @@ mod tests {
         assert_eq!(shot["duration"], 4.2);
         assert_eq!(shot["focus"], serde_json::json!({ "x": 0.62, "y": 0.31 }));
         assert_eq!(shot["characterId"], "character-lin-xia");
+        assert_eq!(shot["speechAssetId"], "asset-speech-shot-04");
         assert_eq!(shot["dialogue"], "你为什么现在才回来？");
         assert_eq!(shot["emotion"], "serious");
+        assert_eq!(shot["speechSpeed"], 1.2);
         assert_eq!(shot["pauseBefore"], 0.25);
         assert_eq!(shot["pauseAfter"], 0.4);
         assert_eq!(shot["cameraMotion"]["preset"], "pushIn");
@@ -2138,6 +2228,42 @@ mod tests {
             shot["soundEffectAssetIds"],
             serde_json::json!(["asset-rain", "asset-door"])
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn edit_session_restores_the_project_for_the_same_source_node() {
+        let root = std::env::temp_dir().join(format!(
+            "linglux-edit-session-restore-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let core = MediaCore::new(&root).expect("create media core");
+        let project_id = edit_project_id(Some("video/hero:01"), "unix-100");
+        let mut saved = legacy_project_json();
+        saved["id"] = serde_json::json!(project_id);
+        saved["name"] = serde_json::json!("已保存的角色工程");
+        core.projects()
+            .save_json(&project_id, saved)
+            .expect("save source project");
+
+        let session = create_edit_session_with_core(
+            &core,
+            EditorSessionSeed {
+                source_node_id: Some("video/hero:01".to_string()),
+                asset_name: None,
+                asset_url: None,
+                duration: None,
+                mode: None,
+            },
+        );
+
+        assert_eq!(project_id, "project-source-video_hero_01");
+        assert_eq!(session.project.id, project_id);
+        assert_eq!(session.project.name, "已保存的角色工程");
+        assert!(!session.is_dirty);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -2152,6 +2278,7 @@ mod tests {
         let shot = &serialized["dynamicComic"]["shots"][0];
 
         assert_eq!(shot["focus"], serde_json::json!({ "x": 0.5, "y": 0.5 }));
+        assert!(shot.get("speechAssetId").is_none());
         assert_eq!(shot["dialogue"], "");
         assert_eq!(shot["pauseBefore"], 0.0);
         assert_eq!(shot["pauseAfter"], 0.0);
@@ -2183,6 +2310,8 @@ mod tests {
                     "order": 4.8,
                     "duration": -2.0,
                     "focus": { "x": 2.0, "y": -1.0 },
+                    "characterId": " legacy-free-text-name ",
+                    "speechAssetId": " asset-speech-1 ",
                     "pauseBefore": -0.5,
                     "pauseAfter": -0.5,
                     "cameraMotion": {
@@ -2204,6 +2333,9 @@ mod tests {
         let shots = serialized["dynamicComic"]["shots"]
             .as_array()
             .expect("shots array");
+        let profiles = serialized["dynamicComic"]["characterVoiceProfiles"]
+            .as_array()
+            .expect("character voice profiles");
 
         assert_eq!(shots[0]["order"], 2.0);
         assert_ne!(shots[0]["id"], "shot-existing");
@@ -2215,6 +2347,8 @@ mod tests {
         assert_eq!(shots[1]["order"], 4.0);
         assert_eq!(shots[1]["duration"], 0.0);
         assert_eq!(shots[1]["focus"], serde_json::json!({ "x": 1.0, "y": 0.0 }));
+        assert_eq!(shots[1]["characterId"], "legacy-free-text-name");
+        assert_eq!(shots[1]["speechAssetId"], "asset-speech-1");
         assert_eq!(shots[1]["pauseBefore"], 0.0);
         assert_eq!(shots[1]["pauseAfter"], 0.0);
         assert_eq!(shots[1]["cameraMotion"]["preset"], "static");
@@ -2227,6 +2361,10 @@ mod tests {
             shots[1]["soundEffectAssetIds"],
             serde_json::json!(["asset-rain"])
         );
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0]["id"], "legacy-free-text-name");
+        assert_eq!(profiles[0]["name"], "legacy-free-text-name");
+        assert_eq!(profiles[0]["voice"], "zhFemale");
     }
 }
 
