@@ -20,6 +20,7 @@ Linglux is currently in pre-alpha development. No public release has been publis
 - Added beat-marker alignment, cancellable media tasks, task recovery, provider settings, and supporting regression tests. ([PR #4]) Thanks to [@Bald-M].
 - Added ordered image-sequence review with natural sorting, drag reordering, aspect ratio and shot duration controls, continuous dynamic-comic timeline creation, and image asset add/delete actions. ([PR #25], [Issue #16]) Thanks to [@Bald-M].
 - Added a shot-first dynamic-comic workspace with card-based editing, accessible drag-and-swap ordering, timeline synchronization, batch duration controls, duplication and deletion feedback, responsive details, and shared undo/redo history. ([Issue #17]) Thanks to [@Bald-M].
+- Added reusable character voice profiles, per-shot speech settings and previews, lightweight local Kokoro synthesis, and durable editor autosave for dynamic-comic projects. ([PR #29], [Issue #18]) Thanks to [@Bald-M].
 
 ### Changed
 
@@ -37,9 +38,11 @@ Linglux is currently in pre-alpha development. No public release has been publis
 [PR #4]: https://github.com/wrx012/linglux/pull/4
 [PR #7]: https://github.com/wrx012/linglux/pull/7
 [PR #25]: https://github.com/wrx012/linglux/pull/25
+[PR #29]: https://github.com/wrx012/linglux/pull/29
 [Issue #5]: https://github.com/wrx012/linglux/issues/5
 [Issue #6]: https://github.com/wrx012/linglux/issues/6
 [Issue #16]: https://github.com/wrx012/linglux/issues/16
 [Issue #17]: https://github.com/wrx012/linglux/issues/17
+[Issue #18]: https://github.com/wrx012/linglux/issues/18
 [@Bald-M]: https://github.com/Bald-M
 [@wrx012]: https://github.com/wrx012
